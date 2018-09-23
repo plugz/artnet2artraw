@@ -42,7 +42,7 @@ endef
 
 define Package/artnet2artraw2/install
 	$(INSTALL_DIR) $(1)/usr/sbin
-	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/artnet2artraw2 $(1)/usr/sbin/
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/src/artnet2artraw2 $(1)/usr/sbin/
 endef
 
 $(eval $(call BuildPackage,artnet2artraw2))

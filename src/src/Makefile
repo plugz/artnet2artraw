@@ -31,7 +31,7 @@ ifeq ($(subst TRUE,true,$(filter TRUE true,$(sqlite) $(SQLITE))),true)
 endif
 
 
-SBINFILES       = aireplay-ng$(EXE) airodump-ng$(EXE) airserv-ng$(EXE) \
+SBINFILES       = artnet2artraw2 aireplay-ng$(EXE) airodump-ng$(EXE) airserv-ng$(EXE) \
 		  airtun-ng$(EXE) airbase-ng$(EXE) besside-ng$(EXE)
 		  
 OPTFILES	= aircrack-ng-opt-prof_gen aircrack-ng-opt \
@@ -53,6 +53,7 @@ ASM_AC		= sha1-sse2.S
 OBJS_AD		= airdecap-ng.o crypto.o common.o
 OBJS_PF		= packetforge-ng.o common.o crypto.o
 OBJS_AR		= aireplay-ng.o common.o crypto.o osdep/radiotap/radiotap.o
+OBJS_ARTNET		= artnet2artraw2.o common.o crypto.o osdep/radiotap/radiotap.o
 OBJS_ADU	= airodump-ng.o common.o crypto.o uniqueiv.o osdep/radiotap/radiotap.o
 ifneq ($(OSNAME), Linux)
 	OBJS_ADU	+= osdep/common.o
@@ -88,6 +89,7 @@ ifeq ($(subst TRUE,true,$(filter TRUE true,$(gcrypt) $(GCRYPT))),true)
 	OBJS_PF		+= sha1-git.o
 	OBJS_IV		+= sha1-git.o
 	OBJS_AR		+= sha1-git.o
+	OBJS_ARTNET		+= sha1-git.o
 	OBJS_ADU	+= sha1-git.o
 	OBJS_AT		+= sha1-git.o
 	OBJS_AB		+= sha1-git.o
@@ -139,6 +141,9 @@ packetforge-ng$(EXE): $(OBJS_PF)
 
 aireplay-ng$(EXE): $(OBJS_AR) $(LIBOSD)
 	$(CC) $(CFLAGS) $(LDFLAGS) $(OBJS_AR) -o $(@) $(LIBS) $(LIBSSL)
+
+artnet2artraw2$(EXE): $(OBJS_ARTNET) $(LIBOSD)
+	$(CC) $(CFLAGS) $(LDFLAGS) $(OBJS_ARTNET) -o $(@) $(LIBS) $(LIBSSL)
 
 airodump-ng$(EXE): $(OBJS_ADU) $(LIBOSD)
 	$(CC) $(CFLAGS) $(LDFLAGS) $(OBJS_ADU) -o $(@) $(LIBS) $(LIBSSL) -lpthread $(LIBPCRE)
@@ -217,6 +222,7 @@ uninstall:
 	-rm -f $(DESTDIR)$(sbindir)/airserv-ng$(EXE)
 	-rm -f $(DESTDIR)$(sbindir)/airtun-ng$(EXE)
 	-rm -f $(DESTDIR)$(sbindir)/aireplay-ng$(EXE)
+	-rm -f $(DESTDIR)$(sbindir)/artnet2artraw2$(EXE)
 	-rm -f $(DESTDIR)$(sbindir)/wesside-ng$(EXE)
 	-rm -f $(DESTDIR)$(sbindir)/easside-ng$(EXE)
 	-rm -f $(DESTDIR)$(sbindir)/besside-ng$(EXE)
