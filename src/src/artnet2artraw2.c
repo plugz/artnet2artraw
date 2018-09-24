@@ -133,10 +133,6 @@ int bitrates[RATE_NUM]={RATE_1M, RATE_2M, RATE_5_5M, RATE_6M, RATE_9M, RATE_11M,
 
 extern char * getVersion(char * progname, int maj, int min, int submin, int svnrev, int beta, int rc);
 extern int maccmp(unsigned char *mac1, unsigned char *mac2);
-extern unsigned char * getmac(char * macAddress, int strict, unsigned char * mac);
-extern int check_crc_buf( unsigned char *buf, int len );
-extern const unsigned long int crc_tbl[256];
-extern const unsigned char crc_chop_tbl[256][4];
 
 char usage[] =
 
@@ -164,42 +160,12 @@ struct options
     int f_iswep;
 
     int r_nbpps;
-    int r_fctrl;
-    unsigned char r_dmac[6];
     unsigned char r_smac[6];
-    unsigned char r_dip[4];
-    unsigned char r_sip[4];
-    int r_fromdsinj;
-    char r_smac_set;
 
     char ip_out[16];    //16 for 15 chars + \x00
-    char ip_in[16];
     int port_out;
-    int port_in;
-
     char *iface_out;
-    char *s_face;
-    unsigned char *prga;
-
-    int a_count;
-    int a_delay;
-    int f_retry;
-
-    int ringbuffer;
-    int ghost;
-    int prgalen;
-
-    int delay;
-    int npackets;
-
-    int fast;
-    int bittest;
-
-    int nodetect;
-    int ignore_negative_one;
     int rtc;
-
-    int reassoc;
 }
 opt;
 
@@ -285,15 +251,6 @@ int reset_ifaces()
     dev.fd_out = wi_fd(_wi_out);
 
     /* open the packet source */
-    if( opt.s_face != NULL )
-    {
-        _wi_in = wi_open(opt.s_face);
-        if (!_wi_in)
-            return 1;
-        dev.fd_in = wi_fd(_wi_in);
-        wi_get_mac(_wi_in, dev.mac_in);
-    }
-    else
     {
         _wi_in = _wi_out;
         dev.fd_in = dev.fd_out;
@@ -305,58 +262,6 @@ int reset_ifaces()
 
     wi_get_mac(_wi_out, dev.mac_out);
 
-    return 0;
-}
-
-int set_bitrate(struct wif *wi, int rate)
-{
-    int i, newrate;
-
-    if( wi_set_rate(wi, rate) )
-        return 1;
-
-//    if( reset_ifaces() )
-//        return 1;
-
-    //Workaround for buggy drivers (rt73) that do not accept 5.5M, but 5M instead
-    if (rate == 5500000 && wi_get_rate(wi) != 5500000) {
-	if( wi_set_rate(wi, 5000000) )
-	    return 1;
-    }
-
-    newrate = wi_get_rate(wi);
-    for(i=0; i<RATE_NUM; i++)
-    {
-        if(bitrates[i] == rate)
-            break;
-    }
-    if(i==RATE_NUM)
-        i=-1;
-    if( newrate != rate )
-    {
-        if(i!=-1)
-        {
-            if( i>0 )
-            {
-                if(bitrates[i-1] >= newrate)
-                {
-                    printf("Couldn't set rate to %.1fMBit. (%.1fMBit instead)\n", (rate/1000000.0), (wi_get_rate(wi)/1000000.0));
-                    return 1;
-                }
-            }
-            if( i<RATE_NUM-1 )
-            {
-                if(bitrates[i+1] <= newrate)
-                {
-                    printf("Couldn't set rate to %.1fMBit. (%.1fMBit instead)\n", (rate/1000000.0), (wi_get_rate(wi)/1000000.0));
-                    return 1;
-                }
-            }
-            return 0;
-        }
-        printf("Couldn't set rate to %.1fMBit. (%.1fMBit instead)\n", (rate/1000000.0), (wi_get_rate(wi)/1000000.0));
-        return 1;
-    }
     return 0;
 }
 
@@ -594,7 +499,7 @@ int attack_check(unsigned char* bssid, char* essid, unsigned char* capa, struct 
 
     iface_chan = wi_get_channel(wi);
 
-    if(iface_chan == -1 && !opt.ignore_negative_one)
+    if(iface_chan == -1)
     {
         PCT; printf("Couldn't determine current channel for %s, you should either force the operation with --ignore-negative-one or apply a kernel patch\n",
                 wi_get_ifname(wi));
@@ -609,7 +514,7 @@ int attack_check(unsigned char* bssid, char* essid, unsigned char* capa, struct 
             PCT; printf("No such BSSID available.\n");
             return -1;
         }
-        if((ap_chan != iface_chan) && (iface_chan != -1 || !opt.ignore_negative_one))
+        if((ap_chan != iface_chan))
         {
             PCT; printf("%s is on channel %d, but the AP uses channel %d\n", wi_get_ifname(wi), iface_chan, ap_chan);
             return -1;
@@ -622,9 +527,6 @@ int attack_check(unsigned char* bssid, char* essid, unsigned char* capa, struct 
 int getnet( unsigned char* capa, int filter, int force)
 {
     unsigned char *bssid;
-
-    if(opt.nodetect)
-        return 0;
 
     if(filter)
         bssid = opt.f_bssid;
@@ -1012,7 +914,7 @@ int do_attack_test()
         printf("\n");
         dev.fd_out = wi_fd(_wi_out);
         wi_get_mac(_wi_out, dev.mac_out);
-        if(opt.s_face == NULL)
+        if(1)
         {
             _wi_in = _wi_out;
             dev.fd_in = dev.fd_out;
@@ -1023,36 +925,7 @@ int do_attack_test()
         }
     }
 
-    if(opt.s_face && opt.port_in > 0)
-    {
-        atime += 200;
-        PCT; printf("Testing connection to capture device %s\n", opt.s_face);
-        ret = tcp_test(opt.ip_in, opt.port_in);
-        if(ret != 0)
-        {
-            return( 1 );
-        }
-        printf("\n");
-
-        /* open the packet source */
-        _wi_in = wi_open(opt.s_face);
-        if (!_wi_in)
-            return 1;
-        dev.fd_in = wi_fd(_wi_in);
-        wi_get_mac(_wi_in, dev.mac_in);
-        printf("\n");
-    }
-    else if(opt.s_face && opt.port_in <= 0)
-    {
-        _wi_in = wi_open(opt.s_face);
-        if (!_wi_in)
-            return 1;
-        dev.fd_in = wi_fd(_wi_in);
-        wi_get_mac(_wi_in, dev.mac_in);
-        printf("\n");
-    }
-
-    if(opt.port_in <= 0)
+    if(1)
     {
         /* avoid blocking on reading the socket */
         if( fcntl( dev.fd_in, F_SETFL, O_NONBLOCK ) < 0 )
@@ -1068,9 +941,6 @@ int do_attack_test()
     srand( time( NULL ) );
 
     memset(ap, '\0', 20*sizeof(struct APt));
-
-    if(opt.bittest)
-        set_bitrate(_wi_out, RATE_1M);
 
     PCT; printf("Trying broadcast probe requests...\n");
 
@@ -1241,7 +1111,6 @@ int do_attack_test()
 //                    if(!answers)
 //                    {
 //                        PCT; printf("Injection is working!\n");
-//                        if(opt.fast) return 0;
 //                        gotit=1;
 //                        answers++;
 //                    }
@@ -1373,11 +1242,6 @@ int do_attack_test()
 //                            ap[i].ping[j] = ((tv3.tv_sec*1000000 - tv.tv_sec*1000000) + (tv3.tv_usec - tv.tv_usec));
 //                            if(!answers)
 //                            {
-//                                if(opt.fast)
-//                                {
-//                                    PCT; printf("Injection is working!\n\n");
-//                                    return 0;
-//                                }
 //                                answers++;
 //                            }
 //                            ap[i].found++;
@@ -1396,11 +1260,6 @@ int do_attack_test()
 //                        ap[i].ping[j] = ((tv3.tv_sec*1000000 - tv.tv_sec*1000000) + (tv3.tv_usec - tv.tv_usec));
 //                        if(!answers)
 //                        {
-//                            if(opt.fast)
-//                            {
-//                                PCT; printf("Injection is working!\n\n");
-//                                return 0;
-//                            }
 //                            answers++;
 //                        }
 //                        ap[i].found++;
@@ -1418,11 +1277,6 @@ int do_attack_test()
 //                        ap[i].ping[j] = ((tv3.tv_sec*1000000 - tv.tv_sec*1000000) + (tv3.tv_usec - tv.tv_usec));
 //                        if(!answers)
 //                        {
-//                            if(opt.fast)
-//                            {
-//                                PCT; printf("Injection is working!\n\n");
-//                                return 0;
-//                            }
 //                            answers++;
 //                        }
 //                        ap[i].found++;
@@ -1442,11 +1296,6 @@ int do_attack_test()
 //                            ap[i].ping[j] = ((tv3.tv_sec*1000000 - tv.tv_sec*1000000) + (tv3.tv_usec - tv.tv_usec));
 //                            if(!answers)
 //                            {
-//                                if(opt.fast)
-//                                {
-//                                    PCT; printf("Injection is working!\n\n");
-//                                    return 0;
-//                                }
 //                                answers++;
 //                            }
 //                            ap[i].found++;
@@ -1492,371 +1341,7 @@ int do_attack_test()
 //        }
 //    }
 //
-//    if(opt.bittest)
-//    {
-//        if(found > 0)
-//        {
-//            PCT; printf("Trying directed probe requests for all bitrates...\n");
-//        }
-//
-//        for(i=0; i<found; i++)
-//        {
-//            if(ap[i].found <= 0)
-//                continue;
-//            printf("\n");
-//            PCT; printf("%02X:%02X:%02X:%02X:%02X:%02X - channel: %d - \'%s\'\n", ap[i].bssid[0], ap[i].bssid[1],
-//                        ap[i].bssid[2], ap[i].bssid[3], ap[i].bssid[4], ap[i].bssid[5], ap[i].chan, ap[i].essid);
-//
-//            min = INT_MAX;
-//            max = 0;
-//            avg = 0;
-//
-//            memcpy(h80211, PROBE_REQ, 24);
-//
-//            len = 24;
-//
-//            h80211[24] = 0x00;      //ESSID Tag Number
-//            h80211[25] = ap[i].len; //ESSID Tag Length
-//            memcpy(h80211+len+2, ap[i].essid, ap[i].len);
-//
-//            len += ap[i].len+2;
-//
-//            memcpy(h80211+len, RATES, 16);
-//
-//            len += 16;
-//
-//            for(k=0; k<RATE_NUM; k++)
-//            {
-//                ap[i].found=0;
-//                if(set_bitrate(_wi_out, bitrates[k]))
-//                    continue;
-//
-//
-//                avg2 = 0;
-//                memset(ap[i].pwr, 0, REQUESTS*sizeof(unsigned int));
-//
-//                for(j=0; j<REQUESTS; j++)
-//                {
-//                    /*
-//                        random source so we can identify our packets
-//                    */
-//                    opt.r_smac[0] = 0x00;
-//                    opt.r_smac[1] = rand() & 0xFF;
-//                    opt.r_smac[2] = rand() & 0xFF;
-//                    opt.r_smac[3] = rand() & 0xFF;
-//                    opt.r_smac[4] = rand() & 0xFF;
-//                    opt.r_smac[5] = rand() & 0xFF;
-//
-//                    memcpy(h80211+10, opt.r_smac, 6);
-//
-//                    send_packet(h80211, len);
-//
-//                    gettimeofday( &tv, NULL );
-//
-//                    printf( "\r%2d/%2d: %3d%%\r", ap[i].found, j+1, ((ap[i].found*100)/(j+1)));
-//                    fflush(stdout);
-//                    while (1)  //waiting for relayed packet
-//                    {
-//                        caplen = read_packet(packet, sizeof(packet), &ri);
-//
-//                        if (packet[0] == 0x50 ) //Is probe response
-//                        {
-//                            if (! memcmp(opt.r_smac, packet+4, 6)) //To our MAC
-//                            {
-//                                if(! memcmp(ap[i].bssid, packet+16, 6)) //From the mentioned AP
-//                                {
-//                                    if(!answers)
-//                                    {
-//                                        answers++;
-//                                    }
-//                                    ap[i].found++;
-//                                    if((signed)ri.ri_power > -200)
-//                                        ap[i].pwr[j] = (signed)ri.ri_power;
-//                                    break;
-//                                }
-//                            }
-//                        }
-//
-//                        gettimeofday( &tv2, NULL );
-//                        if (((tv2.tv_sec*1000000 - tv.tv_sec*1000000) + (tv2.tv_usec - tv.tv_usec)) > (100*1000)) //wait 300ms for an answer
-//                        {
-//                            break;
-//                        }
-//                        usleep(10);
-//                    }
-//                    printf( "\r%2d/%2d: %3d%%\r", ap[i].found, j+1, ((ap[i].found*100)/(j+1)));
-//                    fflush(stdout);
-//                }
-//                for(j=0; j<REQUESTS; j++)
-//                    avg2 += ap[i].pwr[j];
-//                if(ap[i].found > 0)
-//                    avg2 /= ap[i].found;
-//                PCT; printf("Probing at %2.1f Mbps:\t%2d/%2d: %3d%%\n", wi_get_rate(_wi_out)/1000000.0,
-//                            ap[i].found, REQUESTS, ((ap[i].found*100)/REQUESTS));
-//            }
-//
-//            if(!gotit && answers)
-//            {
-//                PCT; printf("Injection is working!\n\n");
-//                if(opt.fast) return 0;
-//                gotit=1;
-//            }
-//        }
-//    }
-//    if(opt.bittest)
-//        set_bitrate(_wi_out, RATE_1M);
-//
-//    if( opt.s_face != NULL )
-//    {
-//        printf("\n");
-//        PCT; printf("Trying card-to-card injection...\n");
-//
-//        /* sync both cards to the same channel, or the test will fail */
-//        if(wi_get_channel(_wi_out) != wi_get_channel(_wi_in))
-//        {
-//            wi_set_channel(_wi_out, wi_get_channel(_wi_in));
-//        }
-//
-//        /* Attacks */
-//        for(i=0; i<5; i++)
-//        {
-//            k=0;
-//            /* random macs */
-//            opt.f_smac[0] = 0x00;
-//            opt.f_smac[1] = rand() & 0xFF;
-//            opt.f_smac[2] = rand() & 0xFF;
-//            opt.f_smac[3] = rand() & 0xFF;
-//            opt.f_smac[4] = rand() & 0xFF;
-//            opt.f_smac[5] = rand() & 0xFF;
-//
-//            opt.f_dmac[0] = 0x00;
-//            opt.f_dmac[1] = rand() & 0xFF;
-//            opt.f_dmac[2] = rand() & 0xFF;
-//            opt.f_dmac[3] = rand() & 0xFF;
-//            opt.f_dmac[4] = rand() & 0xFF;
-//            opt.f_dmac[5] = rand() & 0xFF;
-//
-//            opt.f_bssid[0] = 0x00;
-//            opt.f_bssid[1] = rand() & 0xFF;
-//            opt.f_bssid[2] = rand() & 0xFF;
-//            opt.f_bssid[3] = rand() & 0xFF;
-//            opt.f_bssid[4] = rand() & 0xFF;
-//            opt.f_bssid[5] = rand() & 0xFF;
-//
-//            if(i==0) //attack -0
-//            {
-//                memcpy( h80211, DEAUTH_REQ, 26 );
-//                memcpy( h80211 + 16, opt.f_bssid, 6 );
-//                memcpy( h80211 +  4, opt.f_dmac,  6 );
-//                memcpy( h80211 + 10, opt.f_smac, 6 );
-//
-//                opt.f_iswep = 0;
-//                opt.f_tods = 0; opt.f_fromds = 0;
-//                opt.f_minlen = opt.f_maxlen = 26;
-//            }
-//            else if(i==1) //attack -1 (open)
-//            {
-//                memcpy( h80211, AUTH_REQ, 30 );
-//                memcpy( h80211 +  4, opt.f_dmac, 6 );
-//                memcpy( h80211 + 10, opt.f_smac , 6 );
-//                memcpy( h80211 + 16, opt.f_bssid, 6 );
-//
-//                opt.f_iswep = 0;
-//                opt.f_tods = 0; opt.f_fromds = 0;
-//                opt.f_minlen = opt.f_maxlen = 30;
-//            }
-//            else if(i==2) //attack -1 (psk)
-//            {
-//                memcpy( h80211, ska_auth3, 24);
-//                memcpy( h80211 +  4, opt.f_dmac, 6);
-//                memcpy( h80211 + 10, opt.f_smac,  6);
-//                memcpy( h80211 + 16, opt.f_bssid, 6);
-//
-//                //iv+idx
-//                h80211[24] = 0x86;
-//                h80211[25] = 0xD8;
-//                h80211[26] = 0x2E;
-//                h80211[27] = 0x00;
-//
-//                //random bytes (as encrypted data)
-//                for(j=0; j<132; j++)
-//                    h80211[28+j] = rand() & 0xFF;
-//
-//                opt.f_iswep = 1;
-//                opt.f_tods = 0; opt.f_fromds = 0;
-//                opt.f_minlen = opt.f_maxlen = 24+4+132;
-//            }
-//            else if(i==3) //attack -3
-//            {
-//                memcpy( h80211, NULL_DATA, 24);
-//                memcpy( h80211 +  4, opt.f_bssid, 6);
-//                memcpy( h80211 + 10, opt.f_smac,  6);
-//                memcpy( h80211 + 16, opt.f_dmac, 6);
-//
-//                //iv+idx
-//                h80211[24] = 0x86;
-//                h80211[25] = 0xD8;
-//                h80211[26] = 0x2E;
-//                h80211[27] = 0x00;
-//
-//                //random bytes (as encrypted data)
-//                for(j=0; j<132; j++)
-//                    h80211[28+j] = rand() & 0xFF;
-//
-//                opt.f_iswep = -1;
-//                opt.f_tods = 1; opt.f_fromds = 0;
-//                opt.f_minlen = opt.f_maxlen = 24+4+132;
-//            }
-//            else if(i==4) //attack -5
-//            {
-//                memcpy( h80211, NULL_DATA, 24);
-//                memcpy( h80211 +  4, opt.f_bssid, 6);
-//                memcpy( h80211 + 10, opt.f_smac,  6);
-//                memcpy( h80211 + 16, opt.f_dmac, 6);
-//
-//                h80211[1] |= 0x04;
-//                h80211[22] = 0x0A;
-//                h80211[23] = 0x00;
-//
-//                //iv+idx
-//                h80211[24] = 0x86;
-//                h80211[25] = 0xD8;
-//                h80211[26] = 0x2E;
-//                h80211[27] = 0x00;
-//
-//                //random bytes (as encrypted data)
-//                for(j=0; j<7; j++)
-//                    h80211[28+j] = rand() & 0xFF;
-//
-//                opt.f_iswep = -1;
-//                opt.f_tods = 1; opt.f_fromds = 0;
-//                opt.f_minlen = opt.f_maxlen = 24+4+7;
-//            }
-//
-//            for(j=0; (j<(REQUESTS/4) && !k); j++) //try it 5 times
-//            {
-//                send_packet( h80211, opt.f_minlen );
-//
-//                gettimeofday( &tv, NULL );
-//                while (1)  //waiting for relayed packet
-//                {
-//                    caplen = read_packet(packet, sizeof(packet), &ri);
-//                    if ( filter_packet(packet, caplen) == 0 ) //got same length and same type
-//                    {
-//                        if(!answers)
-//                        {
-//                            answers++;
-//                        }
-//
-//                        if(i == 0) //attack -0
-//                        {
-//                            if( h80211[0] == packet[0] )
-//                            {
-//                                k=1;
-//                                break;
-//                            }
-//                        }
-//                        else if(i==1) //attack -1 (open)
-//                        {
-//                            if( h80211[0] == packet[0] )
-//                            {
-//                                k=1;
-//                                break;
-//                            }
-//                        }
-//                        else if(i==2) //attack -1 (psk)
-//                        {
-//                            if( h80211[0] == packet[0] && memcmp(h80211+24, packet+24, caplen-24) == 0 )
-//                            {
-//                                k=1;
-//                                break;
-//                            }
-//                        }
-//                        else if(i==3) //attack -2/-3/-4/-6
-//                        {
-//                            if( h80211[0] == packet[0] && memcmp(h80211+24, packet+24, caplen-24) == 0 )
-//                            {
-//                                k=1;
-//                                break;
-//                            }
-//                        }
-//                        else if(i==4) //attack -5/-7
-//                        {
-//                            if( h80211[0] == packet[0] && memcmp(h80211+24, packet+24, caplen-24) == 0 )
-//                            {
-//                               if( (packet[1] & 0x04) && memcmp( h80211+22, packet+22, 2 ) == 0 )
-//                               {
-//                                    k=1;
-//                                    break;
-//                               }
-//                            }
-//                        }
-//                    }
-//
-//                    gettimeofday( &tv2, NULL );
-//                    if (((tv2.tv_sec*1000000 - tv.tv_sec*1000000) + (tv2.tv_usec - tv.tv_usec)) > (3*atime*1000)) //wait 3*'atime' ms for an answer
-//                    {
-//                        break;
-//                    }
-//                    usleep(10);
-//                }
-//            }
-//            if(k)
-//            {
-//                k=0;
-//                if(i==0) //attack -0
-//                {
-//                    PCT; printf("Attack -0:           OK\n");
-//                }
-//                else if(i==1) //attack -1 (open)
-//                {
-//                    PCT; printf("Attack -1 (open):    OK\n");
-//                }
-//                else if(i==2) //attack -1 (psk)
-//                {
-//                    PCT; printf("Attack -1 (psk):     OK\n");
-//                }
-//                else if(i==3) //attack -3
-//                {
-//                    PCT; printf("Attack -2/-3/-4/-6:  OK\n");
-//                }
-//                else if(i==4) //attack -5
-//                {
-//                    PCT; printf("Attack -5/-7:        OK\n");
-//                }
-//            }
-//            else
-//            {
-//                if(i==0) //attack -0
-//                {
-//                    PCT; printf("Attack -0:           Failed\n");
-//                }
-//                else if(i==1) //attack -1 (open)
-//                {
-//                    PCT; printf("Attack -1 (open):    Failed\n");
-//                }
-//                else if(i==2) //attack -1 (psk)
-//                {
-//                    PCT; printf("Attack -1 (psk):     Failed\n");
-//                }
-//                else if(i==3) //attack -3
-//                {
-//                    PCT; printf("Attack -2/-3/-4/-6:  Failed\n");
-//                }
-//                else if(i==4) //attack -5
-//                {
-//                    PCT; printf("Attack -5/-7:        Failed\n");
-//                }
-//            }
-//        }
-//
-//        if(!gotit && answers)
-//        {
-//            PCT; printf("Injection is working!\n");
-//            if(opt.fast) return 0;
-//            gotit=1;
-//        }
-//    }
+//    
     return 0;
 }
 
@@ -1872,15 +1357,9 @@ int main( int argc, char *argv[] )
     opt.f_type    = -1; opt.f_subtype   = -1;
     opt.f_minlen  = -1; opt.f_maxlen    = -1;
     opt.f_tods    = -1; opt.f_fromds    = -1;
-    opt.f_iswep   = -1; opt.ringbuffer  =  8;
+    opt.f_iswep   = -1;
 
-    opt.r_fctrl     = -1;
-    opt.ghost     =  0;
-    opt.delay     = 15; opt.bittest     =  0;
-    opt.fast      =  0; opt.r_smac_set  =  0;
-    opt.npackets  =  1; opt.nodetect    =  0;
-    opt.rtc       =  1; opt.f_retry	=  0;
-    opt.reassoc   =  0;
+    opt.rtc       =  1;
 
     while( 1 )
     {
@@ -2019,19 +1498,6 @@ usage:
         dev.fd_out = wi_fd(_wi_out);
 
         /* open the packet source */
-        if( opt.s_face != NULL )
-        {
-            //don't open interface(s) when using test mode and airserv
-            if (1)
-            {
-                _wi_in = wi_open(opt.s_face);
-                if (!_wi_in)
-                    return 1;
-                dev.fd_in = wi_fd(_wi_in);
-                wi_get_mac(_wi_in, dev.mac_in);
-            }
-        }
-        else
         {
             _wi_in = _wi_out;
             dev.fd_in = dev.fd_out;
@@ -2050,7 +1516,7 @@ usage:
     }
 
     /* XXX */
-    if( opt.r_nbpps == 0 )
+    if(1)
     {
         if( dev.is_wlanng || dev.is_hostap )
             opt.r_nbpps = 200;
