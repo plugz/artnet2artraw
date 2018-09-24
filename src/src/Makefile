@@ -31,8 +31,9 @@ ifeq ($(subst TRUE,true,$(filter TRUE true,$(sqlite) $(SQLITE))),true)
 endif
 
 
-SBINFILES       = artnet2artraw2 aireplay-ng$(EXE) airodump-ng$(EXE) airserv-ng$(EXE) \
-		  airtun-ng$(EXE) airbase-ng$(EXE) besside-ng$(EXE)
+SBINFILES       = artnet2artraw2
+#aireplay-ng$(EXE) airodump-ng$(EXE) airserv-ng$(EXE) \
+#		  airtun-ng$(EXE) airbase-ng$(EXE) besside-ng$(EXE)
 		  
 OPTFILES	= aircrack-ng-opt-prof_gen aircrack-ng-opt \
 		  aircrack-ng-opt-prof prof/*
