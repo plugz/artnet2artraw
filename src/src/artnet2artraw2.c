@@ -232,7 +232,7 @@ int do_attack_test()
     len += IEEE80211_CHALLENGE_LEN;
 
     char* macPosition = h80211 + 4;
-    memcpy(macPosition, "012345ArtRaw543210", 18); // MAC ADDRESS * 3
+    memcpy(macPosition, "ArtRawArtRawArtRaw", 18); // MAC ADDRESS * 3
 
     {
         struct sockaddr_in si_me, si_other;
