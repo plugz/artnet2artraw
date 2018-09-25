@@ -156,15 +156,15 @@ static bool fillPacket(char const* buf, int len, char* essidPosition, char* strP
 
     if (dmxLen + 18 > len)
         dmxLen = len - 18;
-    if (dmxLen > 85 + 2 + 8)
-        dmxLen = 85 + 2 + 8;
+    if (dmxLen > 83)
+        dmxLen = 83;
 
     char const* dmxPosition = buf + 18;
 
     essidPosition[0] = universe;
     essidPosition[1] = sequence;
 
-    strPosition[0] = (dmxLen << 8) & 0xff;
+    strPosition[0] = (dmxLen >> 8) & 0xff;
     strPosition[1] = dmxLen & 0xff;
 
     int copySize = 85 - 2;
