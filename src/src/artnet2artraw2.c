@@ -26,6 +26,8 @@
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
 
+#include <stdbool.h>
+
 #include "pcap.h"
 #include "osdep/osdep.h"
 #include "ieee80211.h"
@@ -39,35 +41,46 @@
 #define RETRY   2
 #define ABORT   3
 
-#define DEAUTH_REQ      \
-    "\xC0\x00\x3A\x01\xCC\xCC\xCC\xCC\xCC\xCC\xBB\xBB\xBB\xBB\xBB\xBB" \
-    "\xBB\xBB\xBB\xBB\xBB\xBB\x00\x00\x07\x00"
-
-#define AUTH_REQ        \
-    "\xB0\x00\x3A\x01\xBB\xBB\xBB\xBB\xBB\xBB\xCC\xCC\xCC\xCC\xCC\xCC" \
-    "\xBB\xBB\xBB\xBB\xBB\xBB\xB0\x00\x00\x00\x01\x00\x00\x00"
-
-#define ASSOC_REQ       \
-    "\x00\x00\x3A\x01\xBB\xBB\xBB\xBB\xBB\xBB\xCC\xCC\xCC\xCC\xCC\xCC"  \
-    "\xBB\xBB\xBB\xBB\xBB\xBB\xC0\x00\x31\x04\x64\x00"
-
-#define REASSOC_REQ       \
-    "\x20\x00\x3A\x01\xBB\xBB\xBB\xBB\xBB\xBB\xCC\xCC\xCC\xCC\xCC\xCC"  \
-    "\xBB\xBB\xBB\xBB\xBB\xBB\xC0\x00\x31\x04\x64\x00\x00\x00\x00\x00\x00\x00"
-
-#define NULL_DATA       \
-    "\x48\x01\x3A\x01\xBB\xBB\xBB\xBB\xBB\xBB\xCC\xCC\xCC\xCC\xCC\xCC"  \
-    "\xBB\xBB\xBB\xBB\xBB\xBB\xE0\x1B"
-
-#define RTS             \
-    "\xB4\x00\x4E\x04\xBB\xBB\xBB\xBB\xBB\xBB\xCC\xCC\xCC\xCC\xCC\xCC"
-
-#define RATES           \
-    "\x01\x04\x02\x04\x0B\x16\x32\x08\x0C\x12\x18\x24\x30\x48\x60\x6C"
-
 #define PROBE_REQ       \
     "\x40\x00\x00\x00\xFF\xFF\xFF\xFF\xFF\xFF\xCC\xCC\xCC\xCC\xCC\xCC"  \
     "\xFF\xFF\xFF\xFF\xFF\xFF\x00\x00"
+
+#define ARTNET_PORT      6454
+
+#define ARTNET_POLL           0x2000
+#define ARTNET_POLLREPLY      0x2100
+#define ARTNET_DIAGDATA       0x2300
+#define ARTNET_COMMAND        0x2400
+#define ARTNET_DMX            0x5000
+#define ARTNET_NZS            0x5100
+#define ARTNET_ADDRESS        0x6000
+#define ARTNET_INPUT          0x7000
+#define ARTNET_TODREQUEST     0x8000
+#define ARTNET_TODDATA        0x8100
+#define ARTNET_TODCONTROL     0x8200
+#define ARTNET_RDM            0x8300
+#define ARTNET_RDMSUB         0x8400
+#define ARTNET_VIDEOSTEUP     0xa010
+#define ARTNET_VIDEOPALETTE   0xa020
+#define ARTNET_VIDEODATA      0xa040
+#define ARTNET_MACMASTER      0xf000
+#define ARTNET_MACSLAVE       0xf100
+#define ARTNET_FIRMWAREMASTER 0xf200
+#define ARTNET_FIRMWAREREPLY  0xf300
+#define ARTNET_FILETNMASTER   0xf400
+#define ARTNET_FILEFNMASTER   0xf500
+#define ARTNET_FILEFNREPLY    0xf600
+#define ARTNET_IPPROG         0xf800
+#define ARTNET_IPREPLY        0xf900
+#define ARTNET_MEDIA          0x9000
+#define ARTNET_MEDIAPATCH     0x9100
+#define ARTNET_MEDIACONTROL   0x9200
+#define ARTNET_MEDIACONTROLREPLY 0x9300
+#define ARTNET_TIMECODE       0x9700
+#define ARTNET_TIMESYNC       0x9800
+#define ARTNET_TRIGGER        0x9900
+#define ARTNET_DIRECTORY      0x9a00
+#define ARTNET_DIRECTORYREPLY 0x9b00
 
 char usage[] =
 
@@ -83,13 +96,6 @@ char usage[] =
 
 struct options
 {
-    int f_minlen;
-    int f_maxlen;
-    int f_tods;
-    int f_fromds;
-
-    char ip_out[16];    //16 for 15 chars + \x00
-    int port_out;
     char *iface_out;
 }
 opt;
@@ -106,29 +112,68 @@ dev;
 
 static struct wif *_wi_in, *_wi_out;
 
-struct APt
-{
-    unsigned char set;
-    unsigned char found;
-    unsigned char len;
-    unsigned char essid[255];
-    unsigned char bssid[6];
-    unsigned char chan;
-    unsigned int  ping[REQUESTS];
-    int  pwr[REQUESTS];
-};
-
-struct APt ap[MAX_APS];
-
 unsigned long nb_pkt_sent;
 unsigned char h80211[4096];
 
-unsigned char ska_auth1[]     = "\xb0\x00\x3a\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
-                        "\x00\x00\x00\x00\x00\x00\xb0\x01\x01\x00\x01\x00\x00\x00";
+// buf is received packet
+// len is received packet len
+// essidPosition is an out 2 bytes buf
+// strPosition is an out 85 bytes buf
+static bool fillPacket(char const* buf, int len, char* essidPosition, char* strPosition)
+{
+    if (len < 12)
+    {
+        printf("len too low\n");
+        return false;
+    }
+    if (memcmp(buf, "Art-Net", 7))
+    {
+        printf("no Art-Net\n");
+        return false;
+    }
+    if (buf[7] != 0)
+    {
+        printf("buf[7] != 0\n");
+        return false;
+    }
 
-unsigned char ska_auth3[4096] = "\xb0\x40\x3a\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
-                        "\x00\x00\x00\x00\x00\x00\xc0\x01";
+    int code = ((int)buf[9] << 8) | buf[8];
 
+    if (code != ARTNET_DMX)
+    {
+        printf("not a DMX packet\n");
+        return false;
+    }
+    if (len < 19)
+    {
+        printf("len too low for dmx\n");
+        return false;
+    }
+
+    int universe = ((int)buf[15] << 8) | buf[14];
+    int dmxLen = ((int)buf[16] << 8) | buf[17];
+    int sequence = buf[12];
+
+    if (dmxLen + 18 > len)
+        dmxLen = len - 18;
+    if (dmxLen > 85 + 2 + 8)
+        dmxLen = 85 + 2 + 8;
+
+    char const* dmxPosition = buf + 18;
+
+    essidPosition[0] = universe;
+    essidPosition[1] = sequence;
+
+    strPosition[0] = (dmxLen << 8) & 0xff;
+    strPosition[1] = dmxLen & 0xff;
+
+    int copySize = 85 - 2;
+    if (copySize > dmxLen)
+        copySize = dmxLen;
+    memcpy(strPosition + 2, dmxPosition, copySize);
+
+    return true;
+}
 
 int send_packet(void *buf, size_t count)
 {
@@ -157,296 +202,9 @@ int send_packet(void *buf, size_t count)
 	return 0;
 }
 
-static int get_ip_port(char *iface, char *ip, const int ip_size)
-{
-	char *host;
-	char *ptr;
-	int port = -1;
-	struct in_addr addr;
-
-	host = strdup(iface);
-	if (!host)
-		return -1;
-
-	ptr = strchr(host, ':');
-	if (!ptr)
-		goto out;
-
-	*ptr++ = 0;
-
-	if (!inet_aton(host, (struct in_addr *)&addr))
-		goto out; /* XXX resolve hostname */
-
-	if(strlen(host) > 15)
-        {
-            port = -1;
-            goto out;
-        }
-	strncpy(ip, host, ip_size);
-	port = atoi(ptr);
-        if(port <= 0) port = -1;
-
-out:
-	free(host);
-	return port;
-}
-
-struct net_hdr {
-	uint8_t		nh_type;
-	uint32_t	nh_len;
-	uint8_t		nh_data[0];
-};
-
-int tcp_test(const char* ip_str, const short port)
-{
-    int sock, i;
-    struct sockaddr_in s_in;
-    int packetsize = 1024;
-    unsigned char packet[packetsize];
-    struct timeval tv, tv2, tv3;
-    int caplen = 0;
-    int times[REQUESTS];
-    int min, avg, max, len;
-    struct net_hdr nh;
-
-    tv3.tv_sec=0;
-    tv3.tv_usec=1;
-
-    s_in.sin_family = PF_INET;
-    s_in.sin_port = htons(port);
-    if (!inet_aton(ip_str, &s_in.sin_addr))
-            return -1;
-
-    if ((sock = socket(s_in.sin_family, SOCK_STREAM, IPPROTO_TCP)) == -1)
-            return -1;
-
-    /* avoid blocking on reading the socket */
-    if( fcntl( sock, F_SETFL, O_NONBLOCK ) < 0 )
-    {
-        perror( "fcntl(O_NONBLOCK) failed" );
-        return( 1 );
-    }
-
-    gettimeofday( &tv, NULL );
-
-    while (1)  //waiting for relayed packet
-    {
-        if (connect(sock, (struct sockaddr*) &s_in, sizeof(s_in)) == -1)
-        {
-            if(errno != EINPROGRESS && errno != EALREADY)
-            {
-                perror("connect");
-                close(sock);
-
-                printf("Failed to connect\n");
-
-                return -1;
-            }
-        }
-        else
-        {
-            gettimeofday( &tv2, NULL );
-            break;
-        }
-
-        gettimeofday( &tv2, NULL );
-        //wait 3000ms for a successful connect
-        if (((tv2.tv_sec*1000000 - tv.tv_sec*1000000) + (tv2.tv_usec - tv.tv_usec)) > (3000*1000))
-        {
-            printf("Connection timed out\n");
-            close(sock);
-            return(-1);
-        }
-        usleep(10);
-    }
-
-    printf("TCP connection successful\n");
-
-    //trying to identify airserv-ng
-    memset(&nh, 0, sizeof(nh));
-//     command: GET_CHAN
-    nh.nh_type	= 2;
-    nh.nh_len	= htonl(0);
-
-    if (send(sock, &nh, sizeof(nh), 0) != sizeof(nh))
-    {
-        perror("send");
-        return -1;
-    }
-
-    gettimeofday( &tv, NULL );
-    i=0;
-
-    while (1)  //waiting for GET_CHAN answer
-    {
-        caplen = read(sock, &nh, sizeof(nh));
-
-        if(caplen == -1)
-        {
-            if( errno != EAGAIN )
-            {
-                perror("read");
-                return -1;
-            }
-        }
-
-        if(caplen > 0 && (unsigned)caplen == sizeof(nh))
-        {
-            len = ntohl(nh.nh_len);
-            if (len <= packetsize && len > 0)
-            {
-                if( nh.nh_type == 1 && i==0 )
-                {
-                    i=1;
-                    caplen = read(sock, packet, len);
-                    if(caplen == len)
-                    {
-                        i=2;
-                        break;
-                    }
-                    else
-                    {
-                        i=0;
-                    }
-                }
-                else
-                {
-                    caplen = read(sock, packet, len);
-                }
-            }
-        }
-
-        gettimeofday( &tv2, NULL );
-        //wait 1000ms for an answer
-        if (((tv2.tv_sec*1000000 - tv.tv_sec*1000000) + (tv2.tv_usec - tv.tv_usec)) > (1000*1000))
-        {
-            break;
-        }
-        if(caplen == -1)
-            usleep(10);
-    }
-
-    if(i==2)
-    {
-        printf("airserv-ng found\n");
-    }
-    else
-    {
-        printf("airserv-ng NOT found\n");
-    }
-
-    close(sock);
-
-    for(i=0; i<REQUESTS; i++)
-    {
-        if ((sock = socket(s_in.sin_family, SOCK_STREAM, IPPROTO_TCP)) == -1)
-                return -1;
-
-        /* avoid blocking on reading the socket */
-        if( fcntl( sock, F_SETFL, O_NONBLOCK ) < 0 )
-        {
-            perror( "fcntl(O_NONBLOCK) failed" );
-            return( 1 );
-        }
-
-        usleep(1000);
-
-        gettimeofday( &tv, NULL );
-
-        while (1)  //waiting for relayed packet
-        {
-            if (connect(sock, (struct sockaddr*) &s_in, sizeof(s_in)) == -1)
-            {
-                if(errno != EINPROGRESS && errno != EALREADY)
-                {
-                    perror("connect");
-                    close(sock);
-
-                    printf("Failed to connect\n");
-
-                    return -1;
-                }
-            }
-            else
-            {
-                gettimeofday( &tv2, NULL );
-                break;
-            }
-
-            gettimeofday( &tv2, NULL );
-            //wait 1000ms for a successful connect
-            if (((tv2.tv_sec*1000000 - tv.tv_sec*1000000) + (tv2.tv_usec - tv.tv_usec)) > (1000*1000))
-            {
-                break;
-            }
-            //simple "high-precision" usleep
-            select(1, NULL, NULL, NULL, &tv3);
-        }
-        times[i] = ((tv2.tv_sec*1000000 - tv.tv_sec*1000000) + (tv2.tv_usec - tv.tv_usec));
-        printf( "\r%d/%d\r", i, REQUESTS);
-        fflush(stdout);
-        close(sock);
-    }
-
-    min = INT_MAX;
-    avg = 0;
-    max = 0;
-
-    for(i=0; i<REQUESTS; i++)
-    {
-        if(times[i] < min) min = times[i];
-        if(times[i] > max) max = times[i];
-        avg += times[i];
-    }
-    avg /= REQUESTS;
-
-    printf("ping %s:%d (min/avg/max): %.3fms/%.3fms/%.3fms\n", ip_str, port, min/1000.0, avg/1000.0, max/1000.0);
-
-    return 0;
-}
-
 int do_attack_test()
 {
-    unsigned char packet[4096];
-    struct timeval tv, tv2, tv3;
-    int len=0, i=0, j=0, k=0;
-    int gotit=0, answers=0, found=0;
-    int caplen=0, essidlen=0;
-    unsigned int min, avg, max;
-    int ret=0;
-    float avg2;
-    struct rx_info ri;
-    int atime=200;  //time in ms to wait for answer packet (needs to be higher for airserv)
-    unsigned char nulldata[1024];
-
-    if(opt.port_out > 0)
-    {
-        atime += 200;
-        printf("Testing connection to injection device %s\n", opt.iface_out);
-        ret = tcp_test(opt.ip_out, opt.port_out);
-        if(ret != 0)
-        {
-            return( 1 );
-        }
-        printf("\n");
-
-        /* open the replay interface */
-        _wi_out = wi_open(opt.iface_out);
-        if (!_wi_out)
-            return 1;
-        printf("\n");
-        dev.fd_out = wi_fd(_wi_out);
-        wi_get_mac(_wi_out, dev.mac_out);
-        if(1)
-        {
-            _wi_in = _wi_out;
-            dev.fd_in = dev.fd_out;
-
-            /* XXX */
-            dev.arptype_in = dev.arptype_out;
-            wi_get_mac(_wi_in, dev.mac_in);
-        }
-    }
+    int len=0;
 
     if(1)
     {
@@ -458,10 +216,6 @@ int do_attack_test()
         }
     }
 
-    srand( time( NULL ) );
-
-    memset(ap, '\0', 20*sizeof(struct APt));
-
     printf("Trying broadcast probe requests...\n");
 
     memcpy(h80211, PROBE_REQ, 24);
@@ -470,31 +224,9 @@ int do_attack_test()
     len = 24;
 
     char* essidPosition = h80211 + 24;
-
     len += 2;
 
-    //memcpy(h80211+len, RATES, 16);
 
-    //len += 16;
-    //memcpy(h80211+len, RATES, 16);
-
-    //len += 16;
-    //memcpy(h80211+len, RATES, 16);
-
-    //len += 16;
-
-    gotit=0;
-    answers=0;
-
-    //memcpy(h80211, NULL_DATA, sizeof(NULL_DATA) - 1);
-    //len = sizeof(NULL_DATA) - 1;
-
-    // Avec TYPE_DATA, on peut recevoir 4 octets. (a partir de data[24])
-    //h80211[0] = IEEE80211_FC0_TYPE_DATA | IEEE80211_FC0_SUBTYPE_CFPOLL;
-
-    //h80211[0] = IEEE80211_FC0_TYPE_MGT | IEEE80211_FC0_SUBTYPE_ASSOC_REQ;
-    //h80211[0] = IEEE80211_FC0_TYPE_MGT | IEEE80211_FC0_SUBTYPE_ASSOC_RESP;
-    //h80211[0] = IEEE80211_FC0_TYPE_MGT | IEEE80211_FC0_SUBTYPE_REASSOC_REQ;
 
     char* str =
         "0123456789"
@@ -521,67 +253,63 @@ int do_attack_test()
     char* strPosition = h80211 + len;
     len += IEEE80211_CHALLENGE_LEN;
 
-    // FUCK YEAH on commence a avoir qqc.
-    // mac address * 3 -> 18 bytes
-    // +
-    // on peut caller 85 bytes de CHALLENGE
-    // -> 18+85 = 103 !!!!
+    char* macPosition = h80211 + 4;
+    memcpy(macPosition, "012345ArtRaw543210", 18); // MAC ADDRESS * 3
 
-    //memcpy(h80211+len, str, sizeof(str));
-    //memcpy(h80211+len, str, sizeof(str));
-    //len += sizeof(str);
+    {
+        struct sockaddr_in si_me, si_other;
 
+        int s;
+        int slen = sizeof(si_other);
+        int recv_len;
+        char buf[512];
 
-    essidPosition[0] = 'a';
-    essidPosition[1] = 'a';
-    memcpy(h80211+4, str, 6*3); // MAC ADDRESS * 3
-    memcpy(strPosition, str, IEEE80211_CHALLENGE_LEN);
-    send_packet(h80211, len);
+        //create a UDP socket
+        if ((s=socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1)
+        {
+            perror("socket");
+            return 1;
+        }
 
-    essidPosition[0] = 'b';
-    essidPosition[1] = 'b';
-    memcpy(h80211+4, str+1, 6*3); // MAC ADDRESS * 3
-    memcpy(strPosition, str+1, IEEE80211_CHALLENGE_LEN);
-    send_packet(h80211, len);
+        // zero out the structure
+        memset((char *) &si_me, 0, sizeof(si_me));
 
-    essidPosition[0] = 'c';
-    essidPosition[1] = 'c';
-    memcpy(h80211+4, str+2, 6*3); // MAC ADDRESS * 3
-    memcpy(strPosition, str+2, IEEE80211_CHALLENGE_LEN);
-    send_packet(h80211, len);
-    //h80211[0] = IEEE80211_FC0_TYPE_MGT | IEEE80211_FC0_SUBTYPE_REASSOC_RESP;
-    //send_packet(h80211, len);
-    //send_packet(h80211, len);
-    //send_packet(h80211, len);
-    //h80211[0] = IEEE80211_FC0_TYPE_MGT | IEEE80211_FC0_SUBTYPE_PROBE_REQ;
-    //send_packet(h80211, len);
-    //send_packet(h80211, len);
-    //send_packet(h80211, len);
-    //h80211[0] = IEEE80211_FC0_TYPE_MGT | IEEE80211_FC0_SUBTYPE_PROBE_RESP;
-    //send_packet(h80211, len);
-    //send_packet(h80211, len);
-    //send_packet(h80211, len);
-    //h80211[0] = IEEE80211_FC0_TYPE_MGT | IEEE80211_FC0_SUBTYPE_BEACON;
-    //send_packet(h80211, len);
-    //send_packet(h80211, len);
-    //send_packet(h80211, len);
-    //h80211[0] = IEEE80211_FC0_TYPE_MGT | IEEE80211_FC0_SUBTYPE_ATIM;
-    //send_packet(h80211, len);
-    //send_packet(h80211, len);
-    //send_packet(h80211, len);
-    //h80211[0] = IEEE80211_FC0_TYPE_MGT | IEEE80211_FC0_SUBTYPE_DISASSOC;
-    //send_packet(h80211, len);
-    //send_packet(h80211, len);
-    //send_packet(h80211, len);
-    //h80211[0] = IEEE80211_FC0_TYPE_MGT | IEEE80211_FC0_SUBTYPE_AUTH;
-    //send_packet(h80211, len);
-    //send_packet(h80211, len);
-    //send_packet(h80211, len);
-    //h80211[0] = IEEE80211_FC0_TYPE_MGT | IEEE80211_FC0_SUBTYPE_DEAUTH;
-    //send_packet(h80211, len);
-    //send_packet(h80211, len);
-    //send_packet(h80211, len);
+        si_me.sin_family = AF_INET;
+        si_me.sin_port = htons(ARTNET_PORT);
+        si_me.sin_addr.s_addr = htonl(INADDR_ANY);
 
+        //bind socket to port
+        if( bind(s , (struct sockaddr*)&si_me, sizeof(si_me) ) == -1)
+        {
+            perror("bind");
+            return 1;
+        }
+
+        //keep listening for data
+        while (1)
+        {
+            printf("Waiting for data...\n");
+
+            //try to receive some data, this is a blocking call
+            if ((recv_len = recvfrom(s, buf, sizeof(buf), 0,
+                            (struct sockaddr *)&si_other, &slen)) == -1) {
+                perror("recvfrom");
+                return 1;
+            }
+
+            //print details of the client/peer and the data received
+            printf("received packet\n");
+
+            if (fillPacket(buf, recv_len, essidPosition, strPosition))
+            {
+                printf("send packet\n");
+                send_packet(h80211, len);
+            }
+        }
+
+        //close(s);
+        //return 0;
+    }
 
     return 0;
 }
@@ -594,9 +322,6 @@ int main( int argc, char *argv[] )
 
     memset( &opt, 0, sizeof( opt ) );
     memset( &dev, 0, sizeof( dev ) );
-
-    opt.f_minlen  = -1; opt.f_maxlen    = -1;
-    opt.f_tods    = -1; opt.f_fromds    = -1;
 
     while( 1 )
     {
@@ -656,24 +381,7 @@ usage:
         return( 1 );
     }
 
-    if( (opt.f_minlen > 0 && opt.f_maxlen > 0) && opt.f_minlen > opt.f_maxlen )
-    {
-        printf( "Invalid length filter (min(-m):%d > max(-n):%d).\n",
-                opt.f_minlen, opt.f_maxlen );
-        printf("\"%s --help\" for help.\n", argv[0]);
-        return( 1 );
-    }
-
-    if ( opt.f_tods == 1 && opt.f_fromds == 1 )
-    {
-        printf( "FromDS and ToDS bit are set: packet has to come from the AP and go to the AP\n" );
-    }
-
-    /* open the RTC device if necessary */
-
-
     opt.iface_out = argv[optind];
-    opt.port_out = get_ip_port(opt.iface_out, opt.ip_out, sizeof(opt.ip_out)-1);
 
     //don't open interface(s) when using test mode and airserv
     if (1)
