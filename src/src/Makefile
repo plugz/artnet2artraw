@@ -32,17 +32,10 @@ endif
 
 
 SBINFILES       = artnet2artraw2
-#aireplay-ng$(EXE) airodump-ng$(EXE) airserv-ng$(EXE) \
-#		  airtun-ng$(EXE) airbase-ng$(EXE) besside-ng$(EXE)
 		  
 OPTFILES	= aircrack-ng-opt-prof_gen aircrack-ng-opt \
 		  aircrack-ng-opt-prof prof/*
 
-
-ifeq ($(subst TRUE,true,$(filter TRUE true,$(unstable) $(UNSTABLE))),true)
-	SBINFILES	+= wesside-ng$(EXE) tkiptun-ng$(EXE) easside-ng$(EXE)
-	BINFILES	+= buddy-ng$(EXE)
-endif
 
 
 SRC_PTW		= aircrack-ptw-lib.c
@@ -109,9 +102,7 @@ else
 	LIBSQL		=
 endif
 
-all: userland $(SBINFILES)
-
-userland: $(BINFILES)
+all: $(SBINFILES)
 
 $(LIBOSD):
 	$(MAKE) -C $(OSD)
