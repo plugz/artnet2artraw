@@ -465,11 +465,11 @@ int do_attack_test()
     printf("Trying broadcast probe requests...\n");
 
     memcpy(h80211, PROBE_REQ, 24);
+    h80211[0] = IEEE80211_FC0_SUBTYPE_ATIM;
 
     len = 24;
 
-    h80211[24] = 0x00;      //ESSID Tag Number
-    h80211[25] = 0x00;      //ESSID Tag Length
+    char* essidPosition = h80211 + 24;
 
     len += 2;
 
@@ -517,11 +517,9 @@ int do_attack_test()
         "0123456789"
         "0123456789";
 
-    memcpy(h80211+4, str, 6*3); // MAC ADDRESS * 3
-
     h80211[len++] = IEEE80211_ELEMID_CHALLENGE;
-    memcpy(h80211+len, str, IEEE80211_CHALLENGE_LEN);
-    len += 128;
+    char* strPosition = h80211 + len;
+    len += IEEE80211_CHALLENGE_LEN;
 
     // FUCK YEAH on commence a avoir qqc.
     // mac address * 3 -> 18 bytes
@@ -531,11 +529,25 @@ int do_attack_test()
 
     //memcpy(h80211+len, str, sizeof(str));
     //memcpy(h80211+len, str, sizeof(str));
-    len += sizeof(str);
+    //len += sizeof(str);
 
 
+    essidPosition[0] = 'a';
+    essidPosition[1] = 'a';
+    memcpy(h80211+4, str, 6*3); // MAC ADDRESS * 3
+    memcpy(strPosition, str, IEEE80211_CHALLENGE_LEN);
     send_packet(h80211, len);
+
+    essidPosition[0] = 'b';
+    essidPosition[1] = 'b';
+    memcpy(h80211+4, str+1, 6*3); // MAC ADDRESS * 3
+    memcpy(strPosition, str+1, IEEE80211_CHALLENGE_LEN);
     send_packet(h80211, len);
+
+    essidPosition[0] = 'c';
+    essidPosition[1] = 'c';
+    memcpy(h80211+4, str+2, 6*3); // MAC ADDRESS * 3
+    memcpy(strPosition, str+2, IEEE80211_CHALLENGE_LEN);
     send_packet(h80211, len);
     //h80211[0] = IEEE80211_FC0_TYPE_MGT | IEEE80211_FC0_SUBTYPE_REASSOC_RESP;
     //send_packet(h80211, len);
