@@ -28,8 +28,6 @@
 
 #include "pcap.h"
 #include "osdep/osdep.h"
-#include "crypto.h"
-#include "common.h"
 #include "ieee80211.h"
 
 #define RTC_RESOLUTION  8192
@@ -103,16 +101,6 @@ struct devices
 
     unsigned char mac_in[6];
     unsigned char mac_out[6];
-
-    int is_wlanng;
-    int is_hostap;
-    int is_madwifi;
-    int is_madwifing;
-    int is_bcm43xx;
-
-    FILE *f_cap_in;
-
-    struct pcap_file_header pfh_in;
 }
 dev;
 
@@ -134,8 +122,6 @@ struct APt ap[MAX_APS];
 
 unsigned long nb_pkt_sent;
 unsigned char h80211[4096];
-unsigned char tmpbuf[4096];
-char strbuf[512];
 
 unsigned char ska_auth1[]     = "\xb0\x00\x3a\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
                         "\x00\x00\x00\x00\x00\x00\xb0\x01\x01\x00\x01\x00\x00\x00";
@@ -169,101 +155,6 @@ int send_packet(void *buf, size_t count)
 
 	nb_pkt_sent++;
 	return 0;
-}
-
-int read_packet(void *buf, size_t count, struct rx_info *ri)
-{
-	struct wif *wi = _wi_in; /* XXX */
-	int rc;
-
-        rc = wi_read(wi, buf, count, ri);
-        if (rc == -1) {
-            switch (errno) {
-            case EAGAIN:
-                    return 0;
-            }
-
-            perror("wi_read()");
-            return -1;
-        }
-
-	return rc;
-}
-
-/**
-    if bssid != NULL its looking for a beacon frame
-*/
-int grab_essid(unsigned char* packet, int len)
-{
-    int i=0, j=0, pos=0, tagtype=0, taglen=0, chan=0;
-    unsigned char bssid[6];
-
-    memcpy(bssid, packet+16, 6);
-    taglen = 22;    //initial value to get the fixed tags parsing started
-    taglen+= 12;    //skip fixed tags in frames
-    do
-    {
-        pos    += taglen + 2;
-        tagtype = packet[pos];
-        taglen  = packet[pos+1];
-    } while(tagtype != 3 && pos < len-2);
-
-    if(tagtype != 3) return -1;
-    if(taglen != 1) return -1;
-    if(pos+2+taglen > len) return -1;
-
-    chan = packet[pos+2];
-
-    pos=0;
-
-    taglen = 22;    //initial value to get the fixed tags parsing started
-    taglen+= 12;    //skip fixed tags in frames
-    do
-    {
-        pos    += taglen + 2;
-        tagtype = packet[pos];
-        taglen  = packet[pos+1];
-    } while(tagtype != 0 && pos < len-2);
-
-    if(tagtype != 0) return -1;
-    if(taglen > 250) taglen = 250;
-    if(pos+2+taglen > len) return -1;
-
-    for(i=0; i<20; i++)
-    {
-        if( ap[i].set)
-        {
-            if( memcmp(bssid, ap[i].bssid, 6) == 0 )    //got it already
-            {
-                if(packet[0] == 0x50 && !ap[i].found)
-                {
-                    ap[i].found++;
-                }
-                if(ap[i].chan == 0) ap[i].chan=chan;
-                break;
-            }
-        }
-        if(ap[i].set == 0)
-        {
-            for(j=0; j<taglen; j++)
-            {
-                if(packet[pos+2+j] < 32 || packet[pos+2+j] > 127)
-                {
-                    return -1;
-                }
-            }
-
-            ap[i].set = 1;
-            ap[i].len = taglen;
-            memcpy(ap[i].essid, packet+pos+2, taglen);
-            ap[i].essid[taglen] = '\0';
-            memcpy(ap[i].bssid, bssid, 6);
-            ap[i].chan = chan;
-            if(packet[0] == 0x50) ap[i].found++;
-            return 0;
-        }
-    }
-    return -1;
 }
 
 static int get_ip_port(char *iface, char *ip, const int ip_size)
@@ -369,7 +260,7 @@ int tcp_test(const char* ip_str, const short port)
         usleep(10);
     }
 
-    PCT; printf("TCP connection successful\n");
+    printf("TCP connection successful\n");
 
     //trying to identify airserv-ng
     memset(&nh, 0, sizeof(nh));
@@ -437,11 +328,11 @@ int tcp_test(const char* ip_str, const short port)
 
     if(i==2)
     {
-        PCT; printf("airserv-ng found\n");
+        printf("airserv-ng found\n");
     }
     else
     {
-        PCT; printf("airserv-ng NOT found\n");
+        printf("airserv-ng NOT found\n");
     }
 
     close(sock);
@@ -509,7 +400,7 @@ int tcp_test(const char* ip_str, const short port)
     }
     avg /= REQUESTS;
 
-    PCT; printf("ping %s:%d (min/avg/max): %.3fms/%.3fms/%.3fms\n", ip_str, port, min/1000.0, avg/1000.0, max/1000.0);
+    printf("ping %s:%d (min/avg/max): %.3fms/%.3fms/%.3fms\n", ip_str, port, min/1000.0, avg/1000.0, max/1000.0);
 
     return 0;
 }
@@ -531,7 +422,7 @@ int do_attack_test()
     if(opt.port_out > 0)
     {
         atime += 200;
-        PCT; printf("Testing connection to injection device %s\n", opt.iface_out);
+        printf("Testing connection to injection device %s\n", opt.iface_out);
         ret = tcp_test(opt.ip_out, opt.port_out);
         if(ret != 0)
         {
@@ -571,7 +462,7 @@ int do_attack_test()
 
     memset(ap, '\0', 20*sizeof(struct APt));
 
-    PCT; printf("Trying broadcast probe requests...\n");
+    printf("Trying broadcast probe requests...\n");
 
     memcpy(h80211, PROBE_REQ, 24);
 
