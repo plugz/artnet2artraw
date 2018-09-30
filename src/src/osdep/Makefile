@@ -7,7 +7,7 @@ CFLAGS		+= $(PIC) -I..
 OBJS_COMMON	= network.o file.o
 OBJS		= osdep.o $(OBJS_COMMON)
 
-OBJS_LINUX	= $(OBJS) linux.o linux_tap.o radiotap/radiotap.o common.o
+OBJS_LINUX	= $(OBJS) linux.o radiotap/radiotap.o common.o
 
 all:
 	@echo Building for $(OSNAME)

@@ -97,39 +97,4 @@ extern int wi_fd(struct wif *wi);
 extern struct wif *wi_alloc(int sz);
 extern void *wi_priv(struct wif *wi);
 
-/* Client code can create a tap interface */
-/* XXX we can unify the tap & wi stuff in the future, but for now, lets keep
- * them seperate until we learn something.
- */
-struct tif {
-	int	(*ti_read)(struct tif *ti, void *buf, int len);
-	int	(*ti_write)(struct tif *ti, void *buf, int len);
-	int	(*ti_fd)(struct tif *ti);
-	char	*(*ti_name)(struct tif *ti);
-	int	(*ti_set_mtu)(struct tif *ti, int mtu);
-	int	(*ti_get_mtu)(struct tif *ti);
-	int	(*ti_set_ip)(struct tif *ti, struct in_addr *ip);
-	int	(*ti_set_mac)(struct tif *ti, unsigned char *mac);
-	void	(*ti_close)(struct tif *ti);
-
-	void	*ti_priv;
-};
-/* one per OS */
-extern struct tif *ti_open(char *iface);
-
-/* osdep routines */
-extern struct tif *ti_alloc(int sz);
-extern void *ti_priv(struct tif *ti);
-
-/* client routines */
-extern char *ti_name(struct tif *ti);
-extern int ti_set_mtu(struct tif *ti, int mtu);
-extern int ti_get_mtu(struct tif *ti);
-extern void ti_close(struct tif *ti);
-extern int ti_fd(struct tif *ti);
-extern int ti_read(struct tif *ti, void *buf, int len);
-extern int ti_write(struct tif *ti, void *buf, int len);
-extern int ti_set_mac(struct tif *ti, unsigned char *mac);
-extern int ti_set_ip(struct tif *ti, struct in_addr *ip);
-
 #endif /* __AIRCRACK_NG_OSEDEP_H__ */
