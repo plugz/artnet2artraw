@@ -232,7 +232,6 @@ static bool fillPacket(char const* buf, int len)
     // RGB, encode to ycbcr5bit
     if ((universe & 0x80) == 0)
     {
-        printf("encoding to ycbcr5bit\n");
         if (dmxLen > 120)
             dmxLen = 120;
         dmxLen -= dmxLen % 4; // encode 4 by 4
@@ -244,7 +243,6 @@ static bool fillPacket(char const* buf, int len)
     }
     else
     {
-        printf("not encoding to ycbcr5bit\n");
         if (dmxLen > 85 + 1 + 2 + 6)
             dmxLen = 85 + 1 + 2 + 6;
     }
@@ -404,7 +402,6 @@ int do_artnet2artraw()
         } else if (opCode == ARTNET_DMX) {
             if (fillPacket(buf, recv_len))
             {
-                printf("send packet\n");
                 send_packet(h80211, h80211Len);
             }
         }
