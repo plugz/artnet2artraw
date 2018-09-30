@@ -41,7 +41,6 @@
 #include <sys/utsname.h>
 #include <net/if_arp.h>
 
-#ifdef CONFIG_LIBNL
 #include <linux/nl80211.h>
 #include <netlink/genl/genl.h>
 #include <netlink/genl/family.h>
@@ -49,7 +48,6 @@
 #include <netlink/msg.h>
 #include <netlink/attr.h>
 #include <linux/genetlink.h>
-#endif //CONFIG_LIBNL
 
 #include "radiotap/radiotap.h"
 #include "radiotap/radiotap_iter.h"
@@ -66,10 +64,8 @@
 #include "common.h"
 #include "byteorder.h"
 
-#ifdef CONFIG_LIBNL
 struct nl80211_state state;
 static int chan;
-#endif //CONFIG_LIBNL
 
 
 typedef enum {
@@ -256,39 +252,12 @@ static char * wiToolsPath(const char * tool)
 }
 
 
-/* nl80211 */
-#ifdef CONFIG_LIBNL
 struct nl80211_state {
-#if !defined(CONFIG_LIBNL30) && !defined(CONFIG_LIBNL20)
-    struct nl_handle *nl_sock;
-#else
     struct nl_sock *nl_sock;
-#endif
     struct nl_cache *nl_cache;
     struct genl_family *nl80211;
 };
 
-#if !defined(CONFIG_LIBNL30) && !defined(CONFIG_LIBNL20)
-static inline struct nl_handle *nl_socket_alloc(void)
-{
-    return nl_handle_alloc();
-}
-
-static inline void nl_socket_free(struct nl_handle *h)
-{
-        nl_handle_destroy(h);
-}
-
-static inline int __genl_ctrl_alloc_cache(struct nl_handle *h, struct nl_cache **cache)
-{
-    struct nl_cache *tmp = genl_ctrl_alloc_cache(h);
-    if (!tmp)
-        return -ENOMEM;
-    *cache = tmp;
-    return 0;
-}
-#define genl_ctrl_alloc_cache __genl_ctrl_alloc_cache
-#endif
 
 static int linux_nl80211_init(struct nl80211_state *state)
 {
@@ -349,9 +318,7 @@ static int error_handler(struct sockaddr_nl *nla, struct nlmsgerr *err,
 
 static void test_callback(struct nl_msg *msg, void *arg)
 {
-
 }
-#endif /* End nl80211 */
 
 
 static int linux_write(struct wif *wi, unsigned char *buf, int count,
@@ -893,20 +860,6 @@ static int do_linux_open(struct wif *wi, char *iface)
         return( 1 );
     }
 
-        /* Check iwpriv existence */
-#ifndef CONFIG_LIBNL
-    iwpriv = wiToolsPath("iwpriv");
-    dev->iwpriv = iwpriv;
-    dev->iwconfig = wiToolsPath("iwconfig");
-    dev->ifconfig = wiToolsPath("ifconfig");
-
-    if (! iwpriv )
-    {
-        fprintf(stderr, "Can't find wireless tools, exiting.\n");
-        goto close_in;
-    }
-#endif
-
     /* Exit if ndiswrapper : check iwpriv ndis_reset */
 
     if ( is_ndiswrapper(iface, iwpriv ) )
@@ -1303,7 +1256,6 @@ static void do_free(struct wif *wi)
 	free(wi);
 }
 
-#ifdef CONFIG_LIBNL
 static void linux_close_nl80211(struct wif *wi)
 {
 	struct priv_linux *pl = wi_priv(wi);
@@ -1316,7 +1268,6 @@ static void linux_close_nl80211(struct wif *wi)
 
 	do_free(wi);
 }
-#endif
 
 static int linux_fd(struct wif *wi)
 {
