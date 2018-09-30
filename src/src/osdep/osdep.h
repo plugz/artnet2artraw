@@ -65,8 +65,6 @@ struct rx_info {
  */
 #define MAX_IFACE_NAME	64
 struct wif {
-        int     (*wi_read)(struct wif *wi, unsigned char *h80211, int len,
-                           struct rx_info *ri);
         int     (*wi_write)(struct wif *wi, unsigned char *h80211, int len,
                             struct tx_info *ti);
         int     (*wi_set_channel)(struct wif *wi, int chan);
@@ -89,8 +87,6 @@ struct wif {
 
 /* Routines to be used by client code */
 extern struct wif *wi_open(char *iface);
-extern int wi_read(struct wif *wi, unsigned char *h80211, int len,
-		   struct rx_info *ri);
 extern int wi_write(struct wif *wi, unsigned char *h80211, int len,
 		    struct tx_info *ti);
 extern int wi_set_channel(struct wif *wi, int chan);

@@ -63,7 +63,6 @@
          */
 #include "osdep.h"
 #include "pcap.h"
-#include "crctable_osdep.h"
 #include "common.h"
 #include "byteorder.h"
 
@@ -142,37 +141,6 @@ struct priv_linux {
 #define ARPHRD_IEEE80211        801
 #define ARPHRD_IEEE80211_PRISM  802
 #define ARPHRD_IEEE80211_FULL   803
-
-#ifndef NULL_MAC
-#define NULL_MAC        "\x00\x00\x00\x00\x00\x00"
-#endif
-
-unsigned long calc_crc_osdep( unsigned char * buf, int len)
-{
-    unsigned long crc = 0xFFFFFFFF;
-
-    for( ; len > 0; len--, buf++ )
-        crc = crc_tbl_osdep[(crc ^ *buf) & 0xFF] ^ ( crc >> 8 );
-
-    return( ~crc );
-}
-
-/* CRC checksum verification routine */
-
-int check_crc_buf_osdep( unsigned char *buf, int len )
-{
-    unsigned long crc;
-
-    if (len<0)
-    	return 0;
-
-    crc = calc_crc_osdep(buf, len);
-    buf+=len;
-    return( ( ( crc       ) & 0xFF ) == buf[0] &&
-            ( ( crc >>  8 ) & 0xFF ) == buf[1] &&
-            ( ( crc >> 16 ) & 0xFF ) == buf[2] &&
-            ( ( crc >> 24 ) & 0xFF ) == buf[3] );
-}
 
 //Check if the driver is ndiswrapper */
 static int is_ndiswrapper(const char * iface, const char * path)
@@ -597,209 +565,6 @@ static int linux_get_mtu(struct wif *wi)
     }
 
     return ifr.ifr_mtu;
-}
-
-static int linux_read(struct wif *wi, unsigned char *buf, int count,
-		      struct rx_info *ri)
-{
-    struct priv_linux *dev = wi_priv(wi);
-    unsigned char tmpbuf[4096];
-
-	int caplen, n, got_signal, got_noise, got_channel, fcs_removed;
-
-	caplen = n = got_signal = got_noise = got_channel = fcs_removed = 0;
-
-    if((unsigned)count > sizeof(tmpbuf))
-        return( -1 );
-
-    if( ( caplen = read( dev->fd_in, tmpbuf, count ) ) < 0 )
-    {
-        if( errno == EAGAIN )
-            return( 0 );
-
-        perror( "read failed" );
-        return( -1 );
-    }
-
-    switch (dev->drivertype) {
-    case DT_MADWIFI:
-        caplen -= 4;    /* remove the FCS for madwifi-old! only (not -ng)*/
-        break;
-    default:
-        break;
-    }
-
-    memset( buf, 0, count );
-
-    /* XXX */
-    if (ri)
-    	memset(ri, 0, sizeof(*ri));
-
-    if( dev->arptype_in == ARPHRD_IEEE80211_PRISM )
-    {
-        /* skip the prism header */
-        if( tmpbuf[7] == 0x40 )
-        {
-            /* prism54 uses a different format */
-            if(ri)
-            {
-                ri->ri_power = tmpbuf[0x33];
-                ri->ri_noise = *(unsigned int *)( tmpbuf + 0x33 + 12 );
-                ri->ri_rate = (*(unsigned int *)( tmpbuf + 0x33 + 24 ))*500000;
-
-                got_signal = 1;
-                got_noise = 1;
-            }
-
-            n = 0x40;
-        }
-        else
-        {
-            if(ri)
-            {
-                ri->ri_mactime = *(u_int64_t*)( tmpbuf + 0x5C - 48 );
-                ri->ri_channel = *(unsigned int *)( tmpbuf + 0x5C - 36 );
-                ri->ri_power = *(unsigned int *)( tmpbuf + 0x5C );
-                ri->ri_noise = *(unsigned int *)( tmpbuf + 0x5C + 12 );
-                ri->ri_rate = (*(unsigned int *)( tmpbuf + 0x5C + 24 ))*500000;
-
-//                if( ! memcmp( iface[i], "ath", 3 ) )
-                if( dev->drivertype == DT_MADWIFI )
-                    ri->ri_power -= *(int *)( tmpbuf + 0x68 );
-                if( dev->drivertype == DT_MADWIFING )
-                    ri->ri_power -= *(int *)( tmpbuf + 0x68 );
-
-                got_channel = 1;
-                got_signal = 1;
-                got_noise = 1;
-            }
-
-            n = *(int *)( tmpbuf + 4 );
-        }
-
-        if( n < 8 || n >= caplen )
-            return( 0 );
-    }
-
-    if( dev->arptype_in == ARPHRD_IEEE80211_FULL )
-    {
-        struct ieee80211_radiotap_iterator iterator;
-        struct ieee80211_radiotap_header *rthdr;
-
-        rthdr = (struct ieee80211_radiotap_header *) tmpbuf;
-
-        if (ieee80211_radiotap_iterator_init(&iterator, rthdr, caplen, NULL) < 0)
-            return (0);
-
-        /* go through the radiotap arguments we have been given
-         * by the driver
-         */
-
-        while (ri && (ieee80211_radiotap_iterator_next(&iterator) >= 0)) {
-
-            switch (iterator.this_arg_index) {
-
-            case IEEE80211_RADIOTAP_TSFT:
-                ri->ri_mactime = le64_to_cpu(*((uint64_t*)iterator.this_arg));
-                break;
-
-            case IEEE80211_RADIOTAP_DBM_ANTSIGNAL:
-            	if(!got_signal) {
-					if( *iterator.this_arg < 127 )
-						ri->ri_power = *iterator.this_arg;
-					else
-						ri->ri_power = *iterator.this_arg - 255;
-
-					got_signal = 1;
-				}
-                break;
-
-            case IEEE80211_RADIOTAP_DB_ANTSIGNAL:
-                if(!got_signal) {
-                    if( *iterator.this_arg < 127 )
-                        ri->ri_power = *iterator.this_arg;
-                    else
-                        ri->ri_power = *iterator.this_arg - 255;
-
-                    got_signal = 1;
-                }
-                break;
-
-            case IEEE80211_RADIOTAP_DBM_ANTNOISE:
-            	if(!got_noise) {
-					if( *iterator.this_arg < 127 )
-						ri->ri_noise = *iterator.this_arg;
-					else
-						ri->ri_noise = *iterator.this_arg - 255;
-
-					got_noise = 1;
-				}
-                break;
-
-            case IEEE80211_RADIOTAP_DB_ANTNOISE:
-                if(!got_noise) {
-                    if( *iterator.this_arg < 127 )
-                        ri->ri_noise = *iterator.this_arg;
-                    else
-                        ri->ri_noise = *iterator.this_arg - 255;
-
-                    got_noise = 1;
-                }
-                break;
-
-            case IEEE80211_RADIOTAP_ANTENNA:
-                ri->ri_antenna = *iterator.this_arg;
-                break;
-
-            case IEEE80211_RADIOTAP_CHANNEL:
-                ri->ri_channel = getChannelFromFrequency(le16toh(*(uint16_t*)iterator.this_arg));
-                got_channel = 1;
-                break;
-
-            case IEEE80211_RADIOTAP_RATE:
-                ri->ri_rate = (*iterator.this_arg) * 500000;
-                break;
-
-            case IEEE80211_RADIOTAP_FLAGS:
-                /* is the CRC visible at the end?
-                 * remove
-                 */
-                if ( *iterator.this_arg &
-                    IEEE80211_RADIOTAP_F_FCS )
-                {
-                    fcs_removed = 1;
-                    caplen -= 4;
-                }
-
-                if ( *iterator.this_arg &
-                    IEEE80211_RADIOTAP_F_BADFCS )
-                    return( 0 );
-
-                break;
-
-            }
-        }
-
-        n = le16_to_cpu(rthdr->it_len);
-
-        if( n <= 0 || n >= caplen )
-            return( 0 );
-    }
-
-    caplen -= n;
-
-    //detect fcs at the end, even if the flag wasn't set and remove it
-    if( fcs_removed == 0 && check_crc_buf_osdep( tmpbuf+n, caplen - 4 ) == 1 )
-    {
-        caplen -= 4;
-    }
-
-    memcpy( buf, tmpbuf + n, caplen );
-
-    if(ri && !got_channel)
-        ri->ri_channel = wi_get_channel(wi);
-
-    return( caplen );
 }
 
 static int linux_write(struct wif *wi, unsigned char *buf, int count,
@@ -2194,7 +1959,6 @@ static struct wif *linux_open(char *iface)
 	wi = wi_alloc(sizeof(*pl));
 	if (!wi)
 		return NULL;
-        wi->wi_read             = linux_read;
         wi->wi_write            = linux_write;
 #ifdef CONFIG_LIBNL
         linux_nl80211_init(&state);

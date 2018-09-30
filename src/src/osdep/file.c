@@ -44,95 +44,6 @@ struct priv_file {
 	unsigned char	pf_mac[6];
 };
 
-static int file_read(struct wif *wi, unsigned char *h80211, int len,
-		    struct rx_info *ri)
-{
-	struct priv_file *pf = wi_priv(wi);
-        struct pcap_pkthdr pkh;
-	int rc;
-	unsigned char buf[4096];
-	int off = 0;
-	struct ieee80211_radiotap_header *rh;
-	struct ieee80211_radiotap_iterator iter;
-
-	rc = read(pf->pf_fd, &pkh, sizeof(pkh));
-	if (rc != sizeof(pkh))
-		return -1;
-
-	if (pkh.caplen > sizeof(buf)) {
-		printf("Bad caplen %d\n", pkh.caplen);
-		return 0;
-	}
-
-	assert(pkh.caplen <= sizeof(buf));
-
-	rc = read(pf->pf_fd, buf, pkh.caplen);
-	if (rc != (int) pkh.caplen)
-		return -1;
-
-	if (ri)
-		memset(ri, 0, sizeof(*ri));
-
-	switch (pf->pf_dtl) {
-	case LINKTYPE_IEEE802_11:
-		off = 0;
-		break;
-
-	case LINKTYPE_RADIOTAP_HDR:
-		rh  = (struct ieee80211_radiotap_header*) buf;
-		off = le16_to_cpu(rh->it_len);
-
-        	if (ieee80211_radiotap_iterator_init(&iter, rh, rc, NULL) < 0)
-			return -1;
-
-		while (ieee80211_radiotap_iterator_next(&iter) >= 0) {
-			switch (iter.this_arg_index) {
-			case IEEE80211_RADIOTAP_FLAGS:
-				if (*iter.this_arg & IEEE80211_RADIOTAP_F_FCS)
-					rc -= 4;
-				break;
-			}
-		}
-		break;
-
-	case LINKTYPE_PRISM_HEADER:
-        	if (buf[7] == 0x40)
-          		off = 0x40;
-		else
-			off = *((int *)(buf + 4));
-
-		rc -= 4;
-		break;
-
-	case LINKTYPE_PPI_HDR:
-		off = le16_to_cpu(*(unsigned short *)(buf + 2));
-
-		/* for a while Kismet logged broken PPI headers */
-                if (off == 24 && le16_to_cpu(*(unsigned short *)(buf + 8)) == 2 )
-			off = 32;
-		
-		break;
-
-	case LINKTYPE_ETHERNET:
-		printf("Ethernet packets\n");
-		return 0;
-
-	default:
-		errx(1, "Unknown DTL %d", pf->pf_dtl);
-		break;
-	}
-
-	rc -= off;
-	assert(rc >= 0);
-
-	if (rc > len)
-		rc = len;
-
-	memcpy(h80211, &buf[off], rc);
-
-	return rc;
-}
-
 static int file_get_mac(struct wif *wi, unsigned char *mac)
 {
 	struct priv_file *pn = wi_priv(wi);
@@ -224,7 +135,6 @@ struct wif *file_open(char *iface)
 	if (!wi)
 		return NULL;
 
-	wi->wi_read		= file_read;
 	wi->wi_write		= file_write;
 	wi->wi_set_channel	= file_set_channel;
 	wi->wi_get_channel	= file_get_channel;

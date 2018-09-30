@@ -27,12 +27,6 @@
 
 extern struct wif *file_open(char *iface);
 
-int wi_read(struct wif *wi, unsigned char *h80211, int len, struct rx_info *ri)
-{
-        assert(wi->wi_read);
-        return wi->wi_read(wi, h80211, len, ri);
-}
-
 int wi_write(struct wif *wi, unsigned char *h80211, int len,
              struct tx_info *ti)
 {
