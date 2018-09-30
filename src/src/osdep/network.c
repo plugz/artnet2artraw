@@ -310,39 +310,6 @@ static int net_write(struct wif *wi, unsigned char *h80211, int len,
 	return net_cmd(pn, NET_WRITE, buf, sz);
 }
 
-static int net_set_channel(struct wif *wi, int chan)
-{
-	uint32_t c = htonl(chan);
-
-	return net_cmd(wi_priv(wi), NET_SET_CHAN, &c, sizeof(c));
-}
-
-static int net_get_channel(struct wif *wi)
-{
-	struct priv_net *pn = wi_priv(wi);
-
-	return net_cmd(pn, NET_GET_CHAN, NULL, 0);
-}
-
-static int net_set_rate(struct wif *wi, int rate)
-{
-	uint32_t c = htonl(rate);
-
-	return net_cmd(wi_priv(wi), NET_SET_RATE, &c, sizeof(c));
-}
-
-static int net_get_rate(struct wif *wi)
-{
-	struct priv_net *pn = wi_priv(wi);
-
-	return net_cmd(pn, NET_GET_RATE, NULL, 0);
-}
-
-static int net_get_monitor(struct wif *wi)
-{
-	return net_cmd(wi_priv(wi), NET_GET_MONITOR, NULL, 0);
-}
-
 static void do_net_free(struct wif *wi)
 {
 	assert(wi->wi_priv);
@@ -454,14 +421,9 @@ struct wif *net_open(char *iface)
 	if (!wi)
 		return NULL;
 	wi->wi_write		= net_write;
-	wi->wi_set_channel	= net_set_channel;
-	wi->wi_get_channel	= net_get_channel;
-        wi->wi_set_rate    	= net_set_rate;
-	wi->wi_get_rate    	= net_get_rate;
 	wi->wi_close		= net_close;
 	wi->wi_fd		= net_fd;
 	wi->wi_get_mac		= net_get_mac;
-	wi->wi_get_monitor	= net_get_monitor;
 
 	/* setup iface */
 	s = do_net_open(iface);

@@ -63,45 +63,6 @@ static int file_write(struct wif *wi, unsigned char *h80211, int len,
 	return len;
 }
 
-static int file_set_channel(struct wif *wi, int chan)
-{
-	struct priv_file *pf = wi_priv(wi);
-
-	pf->pf_chan = chan;
-
-	return 0;
-}
-
-static int file_get_channel(struct wif *wi)
-{
-	struct priv_file *pf = wi_priv(wi);
-
-	return pf->pf_chan;
-}
-
-static int file_set_rate(struct wif *wi, int rate)
-{
-	struct priv_file *pf = wi_priv(wi);
-
-	pf->pf_rate = rate;
-
-	return 0;
-}
-
-static int file_get_rate(struct wif *wi)
-{
-	struct priv_file *pf = wi_priv(wi);
-
-	return pf->pf_rate;
-}
-
-static int file_get_monitor(struct wif *wi)
-{
-	if (wi) {}
-
-	return 1;
-}
-
 static void file_close(struct wif *wi)
 {
 	struct priv_file *pn = wi_priv(wi);
@@ -136,14 +97,9 @@ struct wif *file_open(char *iface)
 		return NULL;
 
 	wi->wi_write		= file_write;
-	wi->wi_set_channel	= file_set_channel;
-	wi->wi_get_channel	= file_get_channel;
-        wi->wi_set_rate    	= file_set_rate;
-	wi->wi_get_rate    	= file_get_rate;
 	wi->wi_close		= file_close;
 	wi->wi_fd		= file_fd;
 	wi->wi_get_mac		= file_get_mac;
-	wi->wi_get_monitor	= file_get_monitor;
 
         pf = wi_priv(wi);
 
