@@ -7,7 +7,7 @@
 
 include $(TOPDIR)/rules.mk
 
-PKG_NAME:=artnet2artraw2
+PKG_NAME:=artnet2artraw
 PKG_VERSION:=0.1
 PKG_RELEASE:=1
 
@@ -18,7 +18,7 @@ PKG_MAINTAINER:=Rick Farina <zerochaos@gentoo.org>
 
 include $(INCLUDE_DIR)/package.mk
 
-define Package/artnet2artraw2
+define Package/artnet2artraw
   SECTION:=net
   CATEGORY:=Network
   SUBMENU:=ArtNet
@@ -40,9 +40,9 @@ define Build/Prepare
 	$(CP) ./src/* $(PKG_BUILD_DIR)/
 endef
 
-define Package/artnet2artraw2/install
+define Package/artnet2artraw/install
 	$(INSTALL_DIR) $(1)/usr/sbin
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/src/artnet2artraw2 $(1)/usr/sbin/
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/src/artnet2artraw $(1)/usr/sbin/
 endef
 
-$(eval $(call BuildPackage,artnet2artraw2))
+$(eval $(call BuildPackage,artnet2artraw))

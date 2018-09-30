@@ -8,9 +8,9 @@ iCFLAGS         = -w -mcpu=pentiumpro -march=pentiumpro $(COMMON_CFLAGS)
 iOPTFLAGS       = -O3 -ip -ipo -D_FILE_OFFSET_BITS=64
 PROF_DIR	= $(PWD)/prof
 
-SBINFILES       = artnet2artraw2
+SBINFILES       = artnet2artraw
 
-OBJS_ARTNET		= artnet2artraw2.o
+OBJS_ARTNET		= artnet2artraw.o
 
 OSD		= osdep
 LIBS		:= -L$(OSD) -l$(OSD) $(LIBS)
@@ -21,5 +21,5 @@ all: $(SBINFILES)
 $(LIBOSD):
 	$(MAKE) -C $(OSD)
 
-artnet2artraw2$(EXE): $(OBJS_ARTNET) $(LIBOSD)
+artnet2artraw$(EXE): $(OBJS_ARTNET) $(LIBOSD)
 	$(CC) $(CFLAGS) $(LDFLAGS) $(OBJS_ARTNET) -o $(@) $(LIBS)

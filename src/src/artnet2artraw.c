@@ -73,7 +73,7 @@
 
 char usage[] =
 
-"  usage: artnet2artraw2 <replay interface>\n"
+"  usage: artnet2artraw <replay interface>\n"
 "\n";
 
 
