@@ -29,7 +29,6 @@
 #include <stdbool.h>
 
 #include "conversions.h"
-#include "pcap.h"
 #include "osdep/osdep.h"
 #include "ieee80211.h"
 
