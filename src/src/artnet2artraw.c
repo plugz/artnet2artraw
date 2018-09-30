@@ -72,10 +72,73 @@
 #define ARTNET_DIRECTORYREPLY 0x9b00
 
 char usage[] =
-
 "  usage: artnet2artraw <replay interface>\n"
 "\n";
 
+static char artPollReply[] = {
+    'A', 'r', 't', '-', 'N', 'e', 't', '\0',
+    // opcode (little endian)
+    (ARTNET_POLLREPLY & 0xff), ((ARTNET_POLLREPLY >> 8) & 0xff),
+    // ip address
+    192, 168, 50, 1,
+    // port (little endian)
+    0x36, 0x19,
+    // firmware version
+    1, 0,
+    // sub switch
+    0, 0,
+    // oem value
+    0, 0,
+    // UBEA version
+    0,
+    // Status1
+    0,
+    // ESTA Manufacturer
+    'P', 'L',
+    // short name
+    'a', 'r', 't', 'n', 'e', 't', '2', 'a', 'r', 't', 'r', 'a', 'w', '\0', '\0', '\0', '\0', '\0',
+    // long name
+    't', 'p', '-', 'l', 'i', 'n', 'k', ' ', 'a', 'r', 't', '-', 'n', 'e', 't', ' ',
+    'c', 'l', 'e', 'a', 'r', ' ', 'w', 'i', 'f', 'i', ' ', 'b', 'r', 'o', 'a', 'd',
+    'c', 'a', 's', 't', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
+    '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
+    // node report (status string)
+    '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
+    '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
+    '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
+    '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
+    // numport (big endian)
+    1, 0,
+    // port types: 5 is artnet
+    5, 5, 5, 5,
+    // good input
+    0, 0, 0, 0,
+    // good output
+    0, 0, 0, 0,
+    // swIn
+    0, 0, 0, 0,
+    // swOut
+    0, 0, 0, 0,
+    // swVideo
+    0,
+    // swMacro
+    0,
+    // swRemote
+    0,
+    // style
+    0,
+    // MAC
+    0, 0, 0, 0, 0, 0,
+    // bind ip
+    0, 0, 0, 0,
+    // bind index
+    1,
+    // Status2
+    0,
+    // 26 spares
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+};
 
 struct options
 {
@@ -123,32 +186,9 @@ static void encodeYCbCr5Bit(uint8_t* ycbcr5bit, uint8_t const* dmxPosition, unsi
 // strPosition is an out 85 bytes buf
 static bool fillPacket(char const* buf, int len)
 {
-    if (len < 12)
-    {
-        printf("len too low\n");
-        return false;
-    }
-    if (memcmp(buf, "Art-Net", 7))
-    {
-        printf("no Art-Net\n");
-        return false;
-    }
-    if (buf[7] != 0)
-    {
-        printf("buf[7] != 0\n");
-        return false;
-    }
-
-    int code = ((int)buf[9] << 8) | buf[8];
-
-    if (code != ARTNET_DMX)
-    {
-        printf("not a DMX packet\n");
-        return false;
-    }
     if (len < 19)
     {
-        printf("len too low for dmx\n");
+        printf("packet too short for dmx\n");
         return false;
     }
 
@@ -251,6 +291,19 @@ static bool fillPacket(char const* buf, int len)
     return true;
 }
 
+static bool checkPacket(uint8_t const* buf, unsigned int len, int* opCode)
+{
+    if (len < 12)
+        return false;
+    if (memcmp(buf, "Art-Net", 7))
+        return false;
+    if (buf[7] != 0)
+        return false;
+
+    *opCode = ((int)buf[9] << 8) | buf[8];
+    return true;
+}
+
 int send_packet(void *buf, size_t count)
 {
     struct wif *wi = _wi_out; /* XXX globals suck */
@@ -306,6 +359,7 @@ int do_artnet2artraw()
     int slen = sizeof(si_other);
     int recv_len;
     char buf[512];
+    int opCode;
 
     //create a UDP socket
     if ((s=socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1)
@@ -331,8 +385,6 @@ int do_artnet2artraw()
     //keep listening for data
     while (1)
     {
-        printf("Waiting for data...\n");
-
         //try to receive some data, this is a blocking call
         if ((recv_len = recvfrom(s, buf, sizeof(buf), 0,
                         (struct sockaddr *)&si_other, &slen)) == -1) {
@@ -340,13 +392,21 @@ int do_artnet2artraw()
             return 1;
         }
 
-        //print details of the client/peer and the data received
-        printf("received packet\n");
+        if (!checkPacket(buf, recv_len, &opCode))
+            continue;
 
-        if (fillPacket(buf, recv_len))
-        {
-            printf("send packet\n");
-            send_packet(h80211, h80211Len);
+        if (opCode == ARTNET_POLL) {
+            if (sendto(s, artPollReply, sizeof(artPollReply), 0, (struct sockaddr*)&si_other, slen) == -1)
+            {
+                perror("sendto");
+                return 1;
+            }
+        } else if (opCode == ARTNET_DMX) {
+            if (fillPacket(buf, recv_len))
+            {
+                printf("send packet\n");
+                send_packet(h80211, h80211Len);
+            }
         }
     }
 
