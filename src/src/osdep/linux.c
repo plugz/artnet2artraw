@@ -107,23 +107,13 @@ struct priv_linux {
     int fd_in,  arptype_in;
     int fd_out, arptype_out;
     int fd_main;
-    int fd_rtc;
 
     DRIVER_TYPE drivertype; /* inited to DT_UNKNOWN on allocation by wi_alloc */
 
-    FILE *f_cap_in;
-
-    struct pcap_file_header pfh_in;
-
     int sysfs_inject;
-    int channel;
-    int freq;
     int rate;
-    int tx_power;
     char *wlanctlng; /* XXX never set */
     char *iwpriv;
-    char *iwconfig;
-    char *ifconfig;
     char *wl;
     char *main_if;
     unsigned char pl_mac[6];
@@ -305,22 +295,6 @@ static void nl80211_cleanup(struct nl80211_state *state)
     nl_socket_free(state->nl_sock);
 }
 
-/* Callbacks */
-
-static int error_handler(struct sockaddr_nl *nla, struct nlmsgerr *err,
-                     void *arg)
-{
-    printf("\n\n\nERROR");
-        int *ret = arg;
-            *ret = err->error;
-                return NL_STOP;
-}
-
-static void test_callback(struct nl_msg *msg, void *arg)
-{
-}
-
-
 static int linux_write(struct wif *wi, unsigned char *buf, int count,
                         struct tx_info *ti)
 {
@@ -451,18 +425,6 @@ static int linux_write(struct wif *wi, unsigned char *buf, int count,
     }
 
     return( ret );
-}
-
-static int ieee80211_channel_to_frequency(int chan)
-{
-    if (chan < 14)
-        return 2407 + chan * 5;
-
-    if (chan == 14)
-        return 2484;
-
-    /* FIXME: dot11ChannelStartingFactor (802.11-2007 17.3.8.3.2) */
-    return (chan + 1000) * 5;
 }
 
 static int opensysfs(struct priv_linux *dev, char *iface, int fd) {
@@ -1239,12 +1201,6 @@ static void do_free(struct wif *wi)
 
         if(pl->iwpriv)
             free(pl->iwpriv);
-
-        if(pl->iwconfig)
-            free(pl->iwconfig);
-
-        if(pl->ifconfig)
-            free(pl->ifconfig);
 
         if(pl->wl)
             free(pl->wl);
