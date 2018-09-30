@@ -20,8 +20,6 @@
 #include <fcntl.h>
 #include <ctype.h>
 
-#include <limits.h>
-
 #include <netinet/in_systm.h>
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
@@ -31,15 +29,6 @@
 #include "conversions.h"
 #include "osdep/osdep.h"
 #include "ieee80211.h"
-
-#define RTC_RESOLUTION  8192
-
-#define REQUESTS    30
-#define MAX_APS     20
-
-#define NEW_IV  1
-#define RETRY   2
-#define ABORT   3
 
 #define PROBE_REQ       \
     "\x40\x00\x00\x00\xFF\xFF\xFF\xFF\xFF\xFF\xCC\xCC\xCC\xCC\xCC\xCC"  \
@@ -84,13 +73,7 @@
 
 char usage[] =
 
-"\n"
-"  artnet2artraw2 - (C) 2006-2013 Thomas d\'Otreppe\n"
-"  http://www.aircrack-ng.org\n"
-"\n"
-"  usage: aireplay-ng <options> <replay interface>\n"
-"\n"
-"      --help              : Displays this usage screen\n"
+"  usage: artnet2artraw2 <replay interface>\n"
 "\n";
 
 
@@ -102,18 +85,20 @@ opt;
 
 struct devices
 {
-    int fd_in,  arptype_in;
     int fd_out, arptype_out;
 
-    unsigned char mac_in[6];
     unsigned char mac_out[6];
 }
 dev;
 
-static struct wif *_wi_in, *_wi_out;
+static struct wif *_wi_out;
 
 unsigned long nb_pkt_sent;
 unsigned char h80211[4096];
+unsigned char* macPosition = h80211 + 4;
+unsigned char* essidPosition = h80211 + 24;
+unsigned char* strPosition = h80211 + 27;
+unsigned int h80211Len = 0;
 
 static void encodeYCbCr5Bit(uint8_t* ycbcr5bit, uint8_t const* dmxPosition, unsigned int dmxLen)
 {
@@ -136,7 +121,7 @@ static void encodeYCbCr5Bit(uint8_t* ycbcr5bit, uint8_t const* dmxPosition, unsi
 // len is received packet len
 // essidPosition is an out 2 bytes buf
 // strPosition is an out 85 bytes buf
-static bool fillPacket(char const* buf, int len, char* macPosition, char* essidPosition, char* strPosition)
+static bool fillPacket(char const* buf, int len)
 {
     if (len < 12)
     {
@@ -268,216 +253,132 @@ static bool fillPacket(char const* buf, int len, char* macPosition, char* essidP
 
 int send_packet(void *buf, size_t count)
 {
-	struct wif *wi = _wi_out; /* XXX globals suck */
-	unsigned char *pkt = (unsigned char*) buf;
+    struct wif *wi = _wi_out; /* XXX globals suck */
+    unsigned char *pkt = (unsigned char*) buf;
 
-	if( (count > 24) && (pkt[1] & 0x04) == 0 && (pkt[22] & 0x0F) == 0)
-	{
-		pkt[22] = (nb_pkt_sent & 0x0000000F) << 4;
-		pkt[23] = (nb_pkt_sent & 0x00000FF0) >> 4;
-	}
+    if( (count > 24) && (pkt[1] & 0x04) == 0 && (pkt[22] & 0x0F) == 0)
+    {
+        pkt[22] = (nb_pkt_sent & 0x0000000F) << 4;
+        pkt[23] = (nb_pkt_sent & 0x00000FF0) >> 4;
+    }
 
-	if (wi_write(wi, buf, count, NULL) == -1) {
-		switch (errno) {
-		case EAGAIN:
-		case ENOBUFS:
-			usleep(10000);
-			return 0; /* XXX not sure I like this... -sorbo */
-		}
+    if (wi_write(wi, buf, count, NULL) == -1) {
+        switch (errno) {
+            case EAGAIN:
+            case ENOBUFS:
+                usleep(10000);
+                return 0; /* XXX not sure I like this... -sorbo */
+        }
 
-		perror("wi_write()");
-		return -1;
-	}
+        perror("wi_write()");
+        return -1;
+    }
 
-	nb_pkt_sent++;
-	return 0;
+    nb_pkt_sent++;
+    return 0;
 }
 
-int do_attack_test()
+static void prepare_packet()
 {
-    int len=0;
-
-    if(1)
-    {
-        /* avoid blocking on reading the socket */
-        if( fcntl( dev.fd_in, F_SETFL, O_NONBLOCK ) < 0 )
-        {
-            perror( "fcntl(O_NONBLOCK) failed" );
-            return( 1 );
-        }
-    }
-
-    printf("Trying broadcast probe requests...\n");
-
     memcpy(h80211, PROBE_REQ, 24);
+    h80211Len += 24;
+    // ATIM is probably the least harmful wifi mgt packet
     h80211[0] = IEEE80211_FC0_SUBTYPE_ATIM;
 
-    len = 24;
+    // char* essidPosition = h80211 + 24;
+    h80211Len += 2;
 
-    char* essidPosition = h80211 + 24;
-    len += 2;
+    h80211[h80211Len++] = IEEE80211_ELEMID_CHALLENGE;
+    // char* strPosition = h80211 + len;
+    h80211Len += IEEE80211_CHALLENGE_LEN;
 
-
-    h80211[len++] = IEEE80211_ELEMID_CHALLENGE;
-    char* strPosition = h80211 + len;
-    len += IEEE80211_CHALLENGE_LEN;
-
-    char* macPosition = h80211 + 4;
+    // char* macPosition = h80211 + 4;
     memcpy(macPosition, "Ar....ArtRaw......", 18); // MAC ADDRESS * 3
+}
 
+int do_artnet2artraw()
+{
+    prepare_packet();
+
+    struct sockaddr_in si_me, si_other;
+
+    int s;
+    int slen = sizeof(si_other);
+    int recv_len;
+    char buf[512];
+
+    //create a UDP socket
+    if ((s=socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1)
     {
-        struct sockaddr_in si_me, si_other;
-
-        int s;
-        int slen = sizeof(si_other);
-        int recv_len;
-        char buf[512];
-
-        //create a UDP socket
-        if ((s=socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1)
-        {
-            perror("socket");
-            return 1;
-        }
-
-        // zero out the structure
-        memset((char *) &si_me, 0, sizeof(si_me));
-
-        si_me.sin_family = AF_INET;
-        si_me.sin_port = htons(ARTNET_PORT);
-        si_me.sin_addr.s_addr = htonl(INADDR_ANY);
-
-        //bind socket to port
-        if( bind(s , (struct sockaddr*)&si_me, sizeof(si_me) ) == -1)
-        {
-            perror("bind");
-            return 1;
-        }
-
-        //keep listening for data
-        while (1)
-        {
-            printf("Waiting for data...\n");
-
-            //try to receive some data, this is a blocking call
-            if ((recv_len = recvfrom(s, buf, sizeof(buf), 0,
-                            (struct sockaddr *)&si_other, &slen)) == -1) {
-                perror("recvfrom");
-                return 1;
-            }
-
-            //print details of the client/peer and the data received
-            printf("received packet\n");
-
-            if (fillPacket(buf, recv_len, macPosition, essidPosition, strPosition))
-            {
-                printf("send packet\n");
-                send_packet(h80211, len);
-            }
-        }
-
-        //close(s);
-        //return 0;
+        perror("socket");
+        return 1;
     }
 
+    // zero out the structure
+    memset((char *) &si_me, 0, sizeof(si_me));
+
+    si_me.sin_family = AF_INET;
+    si_me.sin_port = htons(ARTNET_PORT);
+    si_me.sin_addr.s_addr = htonl(INADDR_ANY);
+
+    //bind socket to port
+    if( bind(s , (struct sockaddr*)&si_me, sizeof(si_me) ) == -1)
+    {
+        perror("bind");
+        return 1;
+    }
+
+    //keep listening for data
+    while (1)
+    {
+        printf("Waiting for data...\n");
+
+        //try to receive some data, this is a blocking call
+        if ((recv_len = recvfrom(s, buf, sizeof(buf), 0,
+                        (struct sockaddr *)&si_other, &slen)) == -1) {
+            perror("recvfrom");
+            return 1;
+        }
+
+        //print details of the client/peer and the data received
+        printf("received packet\n");
+
+        if (fillPacket(buf, recv_len))
+        {
+            printf("send packet\n");
+            send_packet(h80211, h80211Len);
+        }
+    }
+
+    close(s);
     return 0;
 }
 
 int main( int argc, char *argv[] )
 {
-    int n, i, ret;
-
-    /* check the arguments */
-
     memset( &opt, 0, sizeof( opt ) );
     memset( &dev, 0, sizeof( dev ) );
 
-    while( 1 )
+    /* check the arguments */
+    if( argc != 2 )
     {
-        int option_index = 0;
-
-        static struct option long_options[] = {
-            {"help",        0, 0, 'H'},
-            {0,             0, 0,  0 }
-        };
-
-        int option = getopt_long( argc, argv,
-                        "H",
-                        long_options, &option_index );
-
-        if( option < 0 ) break;
-
-        switch( option )
-        {
-            case 0 :
-
-                break;
-
-            case ':' :
-
-                printf("\"%s --help\" for help.\n", argv[0]);
-                return( 1 );
-
-            case '?' :
-
-                printf("\"%s --help\" for help.\n", argv[0]);
-                return( 1 );
-
-            case 'H' :
-
-                printf( "%s", usage );
-                return( 1 );
-
-            default : goto usage;
-        }
+        printf("No replay interface specified.\n%s", usage);
+        return 1;
     }
 
-    if( argc - optind != 1 )
-    {
-        if(argc == 1)
-        {
-usage:
-            printf( "%s", usage );
-        }
-        if( argc - optind == 0)
-        {
-            printf("No replay interface specified.\n");
-        }
-        if(argc > 1)
-        {
-            printf("\"%s --help\" for help.\n", argv[0]);
-        }
-        return( 1 );
-    }
+    opt.iface_out = argv[1];
 
-    opt.iface_out = argv[optind];
-
-    //don't open interface(s) when using test mode and airserv
-    if (1)
-    {
-        /* open the replay interface */
-        _wi_out = wi_open(opt.iface_out);
-        if (!_wi_out)
-            return 1;
-        dev.fd_out = wi_fd(_wi_out);
-
-        /* open the packet source */
-        {
-            _wi_in = _wi_out;
-            dev.fd_in = dev.fd_out;
-
-            /* XXX */
-            dev.arptype_in = dev.arptype_out;
-            wi_get_mac(_wi_in, dev.mac_in);
-        }
-
-        wi_get_mac(_wi_out, dev.mac_out);
-    }
+    /* open interface */
+    _wi_out = wi_open(opt.iface_out);
+    if (!_wi_out)
+        return 1;
+    dev.fd_out = wi_fd(_wi_out);
+    wi_get_mac(_wi_out, dev.mac_out);
 
     /* drop privileges */
     if (setuid( getuid() ) == -1) {
         perror("setuid");
     }
 
-    return do_attack_test();
+    return do_artnet2artraw();
 }
