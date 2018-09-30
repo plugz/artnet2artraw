@@ -28,6 +28,7 @@
 
 #include <stdbool.h>
 
+#include "conversions.h"
 #include "pcap.h"
 #include "osdep/osdep.h"
 #include "ieee80211.h"
@@ -115,11 +116,28 @@ static struct wif *_wi_in, *_wi_out;
 unsigned long nb_pkt_sent;
 unsigned char h80211[4096];
 
+static void encodeYCbCr5Bit(uint8_t* ycbcr5bit, uint8_t const* dmxPosition, unsigned int dmxLen)
+{
+    unsigned int i;
+    unsigned int j;
+    uint8_t cb[4];
+    uint8_t cr[4];
+    for (i = 0; i < dmxLen / (3 * 4); ++i)
+    {
+        for (j = 0; j < 4; ++j)
+            conv_ycbcr_from_rgb(dmxPosition + (i * 3 * 4) + (j * 3),
+                    ycbcr5bit + i * 9 + j, // y
+                    cb + j,
+                    cr + j);
+        conv_cbcr_to_5bit(ycbcr5bit + i * 9 + 4, cb, cr);
+    }
+}
+
 // buf is received packet
 // len is received packet len
 // essidPosition is an out 2 bytes buf
 // strPosition is an out 85 bytes buf
-static bool fillPacket(char const* buf, int len, char* essidPosition, char* strPosition)
+static bool fillPacket(char const* buf, int len, char* macPosition, char* essidPosition, char* strPosition)
 {
     if (len < 12)
     {
@@ -156,21 +174,95 @@ static bool fillPacket(char const* buf, int len, char* essidPosition, char* strP
 
     if (dmxLen + 18 > len)
         dmxLen = len - 18;
-    if (dmxLen > 83)
-        dmxLen = 83;
 
     char const* dmxPosition = buf + 18;
 
-    essidPosition[0] = universe;
-    essidPosition[1] = sequence;
+    // macPosition[0] = 'A';
+    // macPosition[1] = 'r';
+    macPosition[2] = universe;
+    macPosition[3] = sequence;
+    // macPosition[4] = dmxLen;
+    // macPosition[5] = data[0];
 
-    strPosition[0] = (dmxLen >> 8) & 0xff;
-    strPosition[1] = dmxLen & 0xff;
+    // macPosition[6] = 'A';
+    // macPosition[7] = 'r';
+    // macPosition[8] = 't';
+    // macPosition[9] = 'R';
+    // macPosition[10] = 'a';
+    // macPosition[11] = 'w';
 
-    int copySize = 85 - 2;
-    if (copySize > dmxLen)
-        copySize = dmxLen;
-    memcpy(strPosition + 2, dmxPosition, copySize);
+    // macPosition[12] = data[3];
+    // macPosition[13] = data[4];
+    // macPosition[14] = data[5];
+    // macPosition[15] = data[6];
+    // macPosition[16] = data[7];
+    // macPosition[17] = data[8];
+
+    // essidPosition[0] = data[1];
+    // essidPosition[1] = data[2];
+
+    // strPosititon[xxx] = data[xxx + 9];
+
+    uint8_t ycbcr5bit[90];
+
+    // RGB, encode to ycbcr5bit
+    if ((universe & 0x80) == 0)
+    {
+        printf("encoding to ycbcr5bit\n");
+        if (dmxLen > 120)
+            dmxLen = 120;
+        dmxLen -= dmxLen % 4; // encode 4 by 4
+
+        encodeYCbCr5Bit(ycbcr5bit, dmxPosition, dmxLen);
+
+        dmxPosition = (char*)ycbcr5bit;
+        dmxLen -= dmxLen / 4;
+    }
+    else
+    {
+        printf("not encoding to ycbcr5bit\n");
+        if (dmxLen > 85 + 1 + 2 + 6)
+            dmxLen = 85 + 1 + 2 + 6;
+    }
+
+    macPosition[4] = dmxLen;
+
+    if (dmxLen)
+    {
+        macPosition[5] = dmxPosition[0];
+        --dmxLen;
+        ++dmxPosition;
+    }
+
+    if (dmxLen)
+    {
+        int copySize = 2;
+        if (copySize > dmxLen)
+            copySize = dmxLen;
+        memcpy(essidPosition, dmxPosition, copySize);
+        dmxLen -= copySize;
+        dmxPosition += copySize;
+    }
+
+    if (dmxLen)
+    {
+        int copySize = 6;
+        if (copySize > dmxLen)
+            copySize = dmxLen;
+        memcpy(macPosition + 12, dmxPosition, copySize);
+        dmxLen -= copySize;
+        dmxPosition += copySize;
+    }
+
+    if (dmxLen)
+    {
+        int copySize = 85;
+        if (copySize > dmxLen)
+            copySize = dmxLen;
+        memcpy(strPosition, dmxPosition, copySize);
+        dmxLen -= copySize;
+        dmxPosition += copySize;
+    }
 
     return true;
 }
@@ -232,7 +324,7 @@ int do_attack_test()
     len += IEEE80211_CHALLENGE_LEN;
 
     char* macPosition = h80211 + 4;
-    memcpy(macPosition, "ArtRawArtRawArtRaw", 18); // MAC ADDRESS * 3
+    memcpy(macPosition, "Ar....ArtRaw......", 18); // MAC ADDRESS * 3
 
     {
         struct sockaddr_in si_me, si_other;
@@ -278,7 +370,7 @@ int do_attack_test()
             //print details of the client/peer and the data received
             printf("received packet\n");
 
-            if (fillPacket(buf, recv_len, essidPosition, strPosition))
+            if (fillPacket(buf, recv_len, macPosition, essidPosition, strPosition))
             {
                 printf("send packet\n");
                 send_packet(h80211, len);
