@@ -114,8 +114,7 @@ ifneq ($(origin AR),environment)
 	AR	= $(TOOL_PREFIX)ar
 endif
 
-REVISION	= $(shell $(AC_ROOT)/evalrev $(AC_ROOT))
-REVFLAGS	?= -D_REVISION=$(REVISION)
+REVFLAGS	?= -D_REVISION=1.0
 
 OPTFLAGS        = -D_FILE_OFFSET_BITS=64
 CFLAGS          ?= -g -W -Wall -O3
