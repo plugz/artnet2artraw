@@ -80,7 +80,7 @@ static char artPollReply[] = {
     // opcode (little endian)
     (ARTNET_POLLREPLY & 0xff), ((ARTNET_POLLREPLY >> 8) & 0xff),
     // ip address
-    192, 168, 50, 1,
+    10, 0, 0, 50,
     // port (little endian)
     0x36, 0x19,
     // firmware version
@@ -195,6 +195,16 @@ static bool fillPacket(char const* buf, int len)
     int universe = ((int)buf[15] << 8) | buf[14];
     int dmxLen = ((int)buf[16] << 8) | buf[17];
     int sequence = buf[12];
+
+    universe -= 64;
+
+    //if (universe > 1)
+    //{
+    //    //printf("uni too big\n");
+    //    return false;
+    //}
+    //else
+    //printf("sending uni %d\n", universe);
 
     if (dmxLen + 18 > len)
         dmxLen = len - 18;
@@ -317,6 +327,7 @@ int send_packet(void *buf, size_t count)
         switch (errno) {
             case EAGAIN:
             case ENOBUFS:
+                perror("wi_write() soft error");
                 usleep(10000);
                 return 0; /* XXX not sure I like this... -sorbo */
         }
@@ -359,26 +370,30 @@ int do_artnet2artraw()
     char buf[512];
     int opCode;
 
+    printf("creating socket...\n");
     //create a UDP socket
     if ((s=socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1)
     {
         perror("socket");
         return 1;
     }
+    printf("creating socket done\n");
 
     // zero out the structure
     memset((char *) &si_me, 0, sizeof(si_me));
 
     si_me.sin_family = AF_INET;
     si_me.sin_port = htons(ARTNET_PORT);
-    si_me.sin_addr.s_addr = htonl(INADDR_ANY);
+    si_me.sin_addr.s_addr = inet_addr("10.0.0.50");//htonl(INADDR_ANY);
 
+    printf("binding...\n");
     //bind socket to port
     if( bind(s , (struct sockaddr*)&si_me, sizeof(si_me) ) == -1)
     {
         perror("bind");
         return 1;
     }
+    printf("binding done\n");
 
     //keep listening for data
     while (1)
@@ -389,9 +404,13 @@ int do_artnet2artraw()
             perror("recvfrom");
             return 1;
         }
+        //printf("received %d bytes\n", recv_len);
 
         if (!checkPacket(buf, recv_len, &opCode))
+        {
+            printf("checkpacket fail\n");
             continue;
+        }
 
         if (opCode == ARTNET_POLL) {
             if (sendto(s, artPollReply, sizeof(artPollReply), 0, (struct sockaddr*)&si_other, slen) == -1)
@@ -402,6 +421,7 @@ int do_artnet2artraw()
         } else if (opCode == ARTNET_DMX) {
             if (fillPacket(buf, recv_len))
             {
+                //printf("send pkt\n");
                 send_packet(h80211, h80211Len);
             }
         }
@@ -413,6 +433,11 @@ int do_artnet2artraw()
 
 int main( int argc, char *argv[] )
 {
+    // disable printf buffering
+//    setvbuf(stdout, NULL, _IONBF, 0);
+
+//    printf("start\n");
+
     memset( &opt, 0, sizeof( opt ) );
     memset( &dev, 0, sizeof( dev ) );
 
@@ -428,7 +453,10 @@ int main( int argc, char *argv[] )
     /* open interface */
     _wi_out = wi_open(opt.iface_out);
     if (!_wi_out)
+    {
+        printf("could not open interface %s\n", argv[1]);
         return 1;
+    }
     dev.fd_out = wi_fd(_wi_out);
     wi_get_mac(_wi_out, dev.mac_out);
 
